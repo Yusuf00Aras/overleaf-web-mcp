@@ -1,0 +1,344 @@
+import { describe, expect, test, vi } from 'vitest'
+
+import { McpError } from '../../src/core/errors.js'
+import { FifoQueue } from '../../src/core/queue.js'
+import { createRevision } from '../../src/core/revision.js'
+import { CommentsApi } from '../../src/overleaf/comments.js'
+import type { JoinedDocument } from '../../src/protocol/project-connection.js'
+
+const tree = [
+  {
+    id: 'doc1',
+    name: 'main.tex',
+    path: 'main.tex',
+    type: 'doc' as const,
+    parentFolderId: 'root',
+  },
+  {
+    id: 'doc2',
+    name: 'other.tex',
+    path: 'other.tex',
+    type: 'doc' as const,
+    parentFolderId: 'root',
+  },
+]
+
+const threads = {
+  open: {
+    messages: [
+      {
+        id: 'm1',
+        content: 'Please revise',
+        timestamp: '2026-01-01T00:00:00.000Z',
+        user_id: 'reviewer',
+        user: { id: 'reviewer', name: 'Reviewer', email: 'r@example.test' },
+      },
+    ],
+  },
+  resolved: {
+    resolved: true,
+    messages: [],
+  },
+}
+
+function shareDocument(
+  content: string,
+  version: number,
+  comments: unknown[] = []
+): JoinedDocument {
+  return {
+    docId: 'doc1',
+    protocol: 'sharejs',
+    version,
+    content,
+    ranges: { comments, changes: [] },
+    rawSnapshot: content,
+  }
+}
+
+function historyDocument(resolved: boolean, version: number): JoinedDocument {
+  const snapshot = {
+    content: 'hello',
+    comments: [
+      {
+        id: 'open',
+        ranges: [{ pos: 1, length: 2 }],
+        resolved,
+      },
+    ],
+    trackedChanges: [],
+  }
+  return {
+    docId: 'doc1',
+    protocol: 'history-ot',
+    version,
+    content: 'hello',
+    ranges: null,
+    rawSnapshot: snapshot,
+  }
+}
+
+function connectionHarness(documents: JoinedDocument[], submitError?: McpError) {
+  const connection = {
+    queue: new FifoQueue(),
+    getTree: () => tree,
+    joinDocument: vi.fn(async () => {
+      const value = documents.shift()
+      if (!value) throw new Error('no document fixture')
+      return value
+    }),
+    leaveDocument: vi.fn(async () => undefined),
+    submitUpdate: vi.fn(async () => {
+      if (submitError) throw submitError
+    }),
+    trackChangesActive: false,
+  }
+  const connections = {
+    withConnection: async <T>(
+      _projectId: string,
+      operation: (value: typeof connection) => Promise<T>
+    ) => await operation(connection),
+    invalidate: vi.fn(async () => undefined),
+  }
+  return { connection, connections }
+}
+
+describe('review comments API', () => {
+  test('lists open threads and lazily joins only documents with matching ranges', async () => {
+    const http = {
+      getJson: vi.fn(async (path: string) => {
+        if (path.endsWith('/threads')) return threads
+        return [
+          {
+            id: 'doc1',
+            ranges: {
+              comments: [{ op: { p: 2, c: 'bc', t: 'open' } }],
+              changes: [],
+            },
+          },
+          {
+            id: 'doc2',
+            ranges: {
+              comments: [{ op: { p: 0, c: 'x', t: 'resolved' }, resolved: true }],
+              changes: [],
+            },
+          },
+        ]
+      }),
+      postJson: vi.fn(),
+      deleteJson: vi.fn(),
+    }
+    const { connection, connections } = connectionHarness([
+      shareDocument('a\nbcde', 1, [{ op: { p: 2, c: 'bc', t: 'open' } }]),
+    ])
+    const api = new CommentsApi(http, connections, { currentUserId: 'user' })
+
+    const result = await api.listComments('project')
+
+    expect(result.positionsUnavailable).toBe(false)
+    expect(result.threads).toEqual([
+      expect.objectContaining({
+        id: 'open',
+        filePath: 'main.tex',
+        quotedText: 'bc',
+        start: { line: 2, column: 1 },
+        end: { line: 2, column: 3 },
+      }),
+    ])
+    expect(connection.joinDocument).toHaveBeenCalledTimes(1)
+    expect(connection.joinDocument).toHaveBeenCalledWith('doc1')
+  })
+
+  test('does not join every document when the project range route is absent', async () => {
+    const http = {
+      getJson: vi.fn(async (path: string) => {
+        if (path.endsWith('/threads')) return threads
+        throw new McpError('NOT_FOUND', 'no ranges')
+      }),
+      postJson: vi.fn(),
+      deleteJson: vi.fn(),
+    }
+    const { connection, connections } = connectionHarness([])
+    const api = new CommentsApi(http, connections, { currentUserId: 'user' })
+
+    const result = await api.listComments('project')
+
+    expect(result.positionsUnavailable).toBe(true)
+    expect(result.threads[0]).toMatchObject({ id: 'open', unlocated: true })
+    expect(connection.joinDocument).not.toHaveBeenCalled()
+  })
+
+  test('joins a filePath document only once while resolving its matching threads', async () => {
+    const http = {
+      getJson: vi.fn(async () => threads),
+      postJson: vi.fn(),
+      deleteJson: vi.fn(),
+    }
+    const { connection, connections } = connectionHarness([
+      shareDocument('a\nbcde', 1, [{ op: { p: 2, c: 'bc', t: 'open' } }]),
+    ])
+    const api = new CommentsApi(http, connections)
+
+    const result = await api.listComments('project', { filePath: 'main.tex' })
+
+    expect(result.threads).toHaveLength(1)
+    expect(connection.joinDocument).toHaveBeenCalledOnce()
+    expect(connection.leaveDocument).toHaveBeenCalledOnce()
+  })
+
+  test('recovers a timed-out reply by matching the current user, content, and time window', async () => {
+    const now = Date.now()
+    const http = {
+      postJson: vi.fn(async () => {
+        throw new McpError('TIMEOUT', 'request timed out')
+      }),
+      getJson: vi.fn(async () => ({
+        open: {
+          messages: [
+            {
+              id: 'new-message',
+              content: 'My reply',
+              user_id: 'user',
+              timestamp: new Date(now + 1).toISOString(),
+            },
+          ],
+        },
+      })),
+      deleteJson: vi.fn(),
+    }
+    const { connections } = connectionHarness([])
+    const api = new CommentsApi(http, connections, {
+      currentUserId: 'user',
+      now: () => now,
+    })
+
+    await expect(api.replyToComment('project', 'open', 'My reply')).resolves.toMatchObject({
+      recoveredAfterTimeout: true,
+      trackChangesActive: false,
+      writeMode: 'untracked',
+    })
+  })
+
+  test('creates a thread, attaches its range, and returns the verified revision', async () => {
+    const before = shareDocument('hello', 1)
+    const after = shareDocument('hello', 2, [
+      { op: { p: 1, c: 'el', t: 'thread' } },
+    ])
+    const { connection, connections } = connectionHarness([before, after])
+    const http = {
+      getJson: vi.fn(async () => ({ thread: { messages: [] } })),
+      postJson: vi.fn(async () => ({ id: 'message' })),
+      deleteJson: vi.fn(async () => ({})),
+    }
+    const api = new CommentsApi(http, connections, {
+      currentUserId: 'user',
+      threadIdFactory: () => 'thread',
+    })
+    const revision = createRevision({
+      projectId: 'project',
+      docId: 'doc1',
+      protocol: 'sharejs',
+      otVersion: 1,
+      content: 'hello',
+    })
+
+    const result = await api.addComment({
+      projectId: 'project',
+      filePath: 'main.tex',
+      revision,
+      start: { line: 1, column: 2 },
+      end: { line: 1, column: 4 },
+      expectedText: 'el',
+      content: 'Review this',
+    })
+
+    expect(http.postJson).toHaveBeenCalledWith(
+      '/project/project/thread/thread/messages',
+      { content: 'Review this' }
+    )
+    expect(connection.submitUpdate).toHaveBeenCalledWith(
+      'doc1',
+      {
+        doc: 'doc1',
+        v: 1,
+        op: [{ p: 1, c: 'el', t: 'thread' }],
+      }
+    )
+    expect(result).toMatchObject({ threadId: 'thread', writeMode: 'untracked' })
+    expect(result.revision).toEqual(expect.any(String))
+  })
+
+  test('polls for a late comment attachment before considering orphan cleanup', async () => {
+    const before = shareDocument('hello', 1)
+    const unchanged = shareDocument('hello', 1)
+    const attached = shareDocument('hello', 2, [
+      { op: { p: 1, c: 'el', t: 'thread' } },
+    ])
+    const { connections } = connectionHarness(
+      [before, unchanged, attached],
+      new McpError('TIMEOUT', 'apply timeout')
+    )
+    const http = {
+      getJson: vi.fn(async () => ({ thread: { messages: [] } })),
+      postJson: vi.fn(async () => ({ id: 'message' })),
+      deleteJson: vi.fn(async () => ({})),
+    }
+    const api = new CommentsApi(http, connections, {
+      threadIdFactory: () => 'thread',
+      recoveryTimeoutMs: 20,
+      recoveryPollIntervalMs: 0,
+    })
+    const revision = createRevision({
+      projectId: 'project',
+      docId: 'doc1',
+      protocol: 'sharejs',
+      otVersion: 1,
+      content: 'hello',
+    })
+
+    await expect(api.addComment({
+      projectId: 'project',
+      filePath: 'main.tex',
+      revision,
+      start: { line: 1, column: 2 },
+      end: { line: 1, column: 4 },
+      expectedText: 'el',
+      content: 'Review this',
+    })).resolves.toMatchObject({ recoveredAfterTimeout: true })
+    expect(http.deleteJson).not.toHaveBeenCalled()
+  })
+
+  test('recovers a timed-out history-OT status update from the verified live state', async () => {
+    const { connections } = connectionHarness(
+      [historyDocument(false, 1), historyDocument(true, 2)],
+      new McpError('TIMEOUT', 'apply timeout')
+    )
+    const http = {
+      getJson: vi.fn(async () => threads),
+      postJson: vi.fn(),
+      deleteJson: vi.fn(),
+    }
+    const api = new CommentsApi(http, connections, {
+      recoveryTimeoutMs: 0,
+      recoveryPollIntervalMs: 0,
+    })
+    const revision = createRevision({
+      projectId: 'project',
+      docId: 'doc1',
+      protocol: 'history-ot',
+      otVersion: 1,
+      content: 'hello',
+    })
+
+    await expect(api.setCommentStatus({
+      projectId: 'project',
+      filePath: 'main.tex',
+      revision,
+      threadId: 'open',
+      status: 'resolved',
+    })).resolves.toMatchObject({
+      status: 'resolved',
+      recoveredAfterTimeout: true,
+    })
+  })
+})

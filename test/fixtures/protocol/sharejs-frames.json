@@ -1,0 +1,6 @@
+{
+  "handshake": "REDACTED_SESSION:60:60:websocket",
+  "joinProject": "5:::{\"name\":\"joinProjectResponse\",\"args\":[{\"publicId\":\"P.REDACTED\",\"project\":{\"_id\":\"PROJECT\",\"rootFolder\":[]},\"permissionsLevel\":\"owner\",\"protocolVersion\":2}]}",
+  "joinDocAck": "6:::1+[null,[\"hello\"],3,[],{\"comments\":[],\"changes\":[]},\"sharejs-text-ot\"]",
+  "applied": "5:::{\"name\":\"otUpdateApplied\",\"args\":[{\"doc\":\"DOC\",\"v\":3,\"op\":[{\"p\":5,\"i\":\"!\"}],\"meta\":{\"source\":\"P.REDACTED\"}}]}"
+}

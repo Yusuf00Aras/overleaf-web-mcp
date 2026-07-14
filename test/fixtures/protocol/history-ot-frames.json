@@ -1,0 +1,4 @@
+{
+  "joinDocAck": "6:::2+[null,{\"content\":\"hello\",\"comments\":[],\"trackedChanges\":[]},8,[],null,\"history-ot\"]",
+  "applied": "5:::{\"name\":\"otUpdateApplied\",\"args\":[{\"doc\":\"DOC\",\"v\":8,\"op\":[{\"textOperation\":[5,\"!\"]}],\"meta\":{\"source\":\"P.REDACTED\"}}]}"
+}

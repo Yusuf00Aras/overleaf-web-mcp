@@ -1,0 +1,60 @@
+import { EventEmitter } from 'node:events'
+
+import { CookieJar } from 'tough-cookie'
+import { describe, expect, test, vi } from 'vitest'
+
+import { openProjectConnection } from '../../src/protocol/connect.js'
+
+class FakeSocket extends EventEmitter {
+  readyState = 0
+  send = vi.fn()
+  close = vi.fn(() => {
+    this.readyState = 3
+    this.emit('close')
+  })
+}
+
+describe('project socket bootstrap', () => {
+  test('uses the authenticated 0.9 handshake and validates joinProjectResponse', async () => {
+    const jar = new CookieJar()
+    await jar.setCookie('overleaf.sid=session; Path=/; Secure', 'https://overleaf.test')
+    const fetcher = vi.fn(async (_url: string, init?: RequestInit) => {
+      expect(String(_url)).toContain('/socket.io/1/')
+      expect(String(_url)).toContain('projectId=project')
+      expect(new Headers(init?.headers).get('cookie')).toContain('overleaf.sid=session')
+      return new Response('SOCKET_SESSION:60:60:websocket', {
+        headers: { 'set-cookie': 'GCLB=sticky-route; Path=/; Secure; HttpOnly' },
+      })
+    })
+    const socket = new FakeSocket()
+    const webSocketFactory = vi.fn((url: string, options: { headers: Record<string, string> }) => {
+      expect(url).toBe('wss://overleaf.test/socket.io/1/websocket/SOCKET_SESSION')
+      expect(options.headers.Cookie).toContain('overleaf.sid=session')
+      expect(options.headers.Cookie).toContain('GCLB=sticky-route')
+      setTimeout(() => {
+        socket.readyState = 1
+        socket.emit('open')
+        socket.emit(
+          'message',
+          Buffer.from(
+            '5:::{"name":"joinProjectResponse","args":[{"publicId":"P.client","project":{"_id":"project","rootFolder":[]},"permissionsLevel":"owner","protocolVersion":2}]}'
+          )
+        )
+      }, 0)
+      return socket
+    })
+
+    const connection = await openProjectConnection({
+      baseUrl: 'https://overleaf.test',
+      projectId: 'project',
+      jar,
+      supportedProtocolVersions: [2],
+      fetcher,
+      webSocketFactory,
+      timeoutMs: 1_000,
+    })
+
+    expect(connection.publicId).toBe('P.client')
+    connection.close()
+  })
+})
