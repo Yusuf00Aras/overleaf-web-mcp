@@ -1,6 +1,6 @@
 <h1 align="center">Overleaf Web MCP</h1>
 
-<p align="center">Revision-checked Overleaf editing, compilation, and review threads over an authenticated browser session.</p>
+<p align="center">Unofficial MCP server for browsing, editing, organizing, compiling, and reviewing Overleaf projects through an authenticated web session.</p>
 
 <p align="center">
   <img alt="Node.js 20 or newer" src="https://img.shields.io/badge/Node.js-20%2B-339933?logo=nodedotjs&amp;logoColor=white">
@@ -10,35 +10,17 @@
 </p>
 
 <p align="center">
-  <img src="docs/assets/overleaf-web-mcp-workflow.webp" alt="Workflow from an MCP client through an authenticated web session to a LaTeX project and its review threads" width="100%">
+  <img src="docs/assets/overleaf-web-mcp-workflow.webp" alt="MCP client connected through an authenticated web session to an Overleaf workspace for project files, LaTeX editing, compilation, and review replies" width="100%">
 </p>
 
-| Browser login | Revision-checked editing | Review threads | Compilation |
-| :---: | :---: | :---: | :---: |
-| Dedicated Chrome profile; no cookie extension | Minimal, verified ShareJS and history-OT updates | List, anchor, reply, resolve, and reopen | Compile a selected root document and stop active builds |
+| Connection | Projects and files | Revision-checked editing | Compilation | Review and replies |
+| :---: | :---: | :---: | :---: | :---: |
+| Dedicated Chrome-family profile and authenticated saved web session | List projects; inspect trees; create, rename, move, delete, upload, and download | Read and write whole files and parsed LaTeX sections through verified OT updates | Compile a selected root document and stop active builds | List, anchor, reply, resolve, and reopen comments |
 
-Overleaf Web MCP is an independent Node.js server for working with Overleaf projects through the Model Context Protocol. It covers project trees, files, LaTeX sections, compilation, and anchored review discussions.
-
-The package does not use Overleaf Git integration. It communicates with browser-facing private REST endpoints and the Socket.IO/OT collaboration protocol using a saved Overleaf web session.
-
-## How this implementation fits
-
-Overleaf MCP integrations use several connection models. The entries below are representative rather than exhaustive, and their capabilities may change over time.
-
-| Implementation | Connection model | Focus |
-| --- | --- | --- |
-| **This project** | Browser-assisted saved session plus private REST and Socket.IO/OT | Revision-checked file, tree, section, compile, and review-thread operations; writes are untracked in V1 |
-| [`@netique/overleaf-mcp`](https://github.com/netique/overleaf-mcp) | Browser session plus private REST and Socket.IO/OT | A close web/OT peer with review comments and tracked-change workflows |
-| [`overleaf-mcp-rt`](https://github.com/DanielHou315/overleaf-mcp-rt) | Session authentication plus native OT | Real-time file and compile tooling focused on self-hosted Community Edition |
-| Git-based projects: [`OverleafMCP`](https://github.com/mjyoo2/OverleafMCP), [`overleaf-mcp-server`](https://github.com/YounesBensafia/overleaf-mcp-server), and [`vibeTeX`](https://github.com/oscardvs/vibetex) | Primarily the Overleaf Git bridge | Git-backed synchronization, editing, and history workflows |
-
-Review-range investigation was informed by [`Overleaf Comment Exporter`](https://github.com/salokr/overleaf-comment-exporter). Real-time protocol behavior was informed by [`Overleaf Workshop`](https://github.com/iamhyc/Overleaf-Workshop).
+Overleaf Web MCP is an independent Node.js Model Context Protocol server for complete Overleaf project workflows. It uses browser-facing private REST endpoints plus Socket.IO/OT through a saved web session, without Overleaf Git integration.
 
 > [!CAUTION]
-> This is an unofficial client for unsupported private APIs. Overleaf may change these interfaces without notice, and automating `www.overleaf.com` may carry Terms-of-Service and account risk. Start with a disposable project, keep live-test volume low, and review Overleaf's current terms before using an important account. Review comments and track changes require Overleaf SaaS or Server Pro; Community Edition does not provide them.
-
-> [!NOTE]
-> V1 mutations are deliberately untracked, even when review mode is active. Results disclose `trackChangesActive` and `writeMode: "untracked"`. Plain edits still require editor permission.
+> This is an unofficial client for unsupported private APIs. Overleaf may change these interfaces without notice, and automating `www.overleaf.com` may carry Terms-of-Service and account risk. Start with a disposable project, keep live-test volume low, and review Overleaf's current terms before using an important account.
 
 ## Quick start
 
@@ -141,6 +123,17 @@ Key contracts:
 - `manage_entity` deletion requires `confirmPath` to exactly equal `path`.
 - Section parsing is single-file only. It recognizes starred headings and optional titles, ignores `%` comments and common verbatim-like environments, and never follows `\input` or `\include`.
 
+> [!NOTE]
+> V1 mutations are deliberately untracked, even when review mode is active. Results disclose `trackChangesActive` and `writeMode: "untracked"`. Plain edits still require editor permission.
+
+## Common workflows
+
+### Project and file workflow
+
+1. Call `list_projects` to find a project, then `get_project_tree` to inspect its files and folders.
+2. Use `create_file` for a text document or `manage_entity` to create folders and rename, move, or confirmed-delete entities.
+3. Use `upload_file` to add a local binary file and `download_file` to save a document or binary file to an explicit local path.
+
 ### Safe edit workflow
 
 1. Call `read_file` and retain its `revision`.
@@ -150,6 +143,11 @@ Key contracts:
 
 `create_file` and `write_section` also return the resulting revision, allowing the next mutation to proceed without an extra read.
 
+### Compile workflow
+
+1. Call `compile_project` with the selected root document.
+2. Use `stop_compile` to stop the active compile for the project.
+
 ### Review workflow
 
 1. Call `list_comments`; it defaults to open threads and accepts file, status, and author filters.
@@ -158,6 +156,8 @@ Key contracts:
 4. Pass the latest revision to `set_comment_status` when resolving or reopening an anchored thread.
 
 All review-panel threads are returned with available author metadata. Overleaf does not expose a reliable separate reviewer classification.
+
+Review comments and track changes require Overleaf SaaS or Server Pro and are unavailable in Community Edition.
 
 ## Configuration
 
@@ -196,19 +196,20 @@ Cookie refreshes are merged under an advisory lock and written through a protect
 
 The server reserves stdout for MCP protocol messages. Logs do not include cookies, filenames, document content, diffs, quoted context, or review-message bodies.
 
-<details>
-<summary><strong>Review-thread location behavior</strong></summary>
+## Connection model and ecosystem
 
-Thread messages, authors, and resolution state come from `/project/:id/threads`. When the deployment exposes `/project/:id/ranges`, that project-wide index identifies the documents containing filtered threads. Only those documents are joined to calculate line and column positions and quoted context.
+Overleaf MCP integrations use several connection models. The entries below are representative rather than exhaustive, and their capabilities may change over time.
 
-If a usable project-wide range index is unavailable, a project-wide call returns threads with `positionsUnavailable: true`; it never scans every document silently. Supplying `filePath` joins only that document and resolves its ShareJS ranges or history-OT comment state. Threads without a document range are returned as `unlocated`.
+| Implementation | Connection model | Focus |
+| --- | --- | --- |
+| **This project** | Browser-assisted saved session plus private REST and Socket.IO/OT | Revision-checked file, tree, parsed-section, compile, and review workflows; writes are untracked in V1 |
+| [`@netique/overleaf-mcp`](https://github.com/netique/overleaf-mcp) | Browser session plus private REST and Socket.IO/OT | A close web/OT peer with review comments and tracked-change workflows |
+| [`overleaf-mcp-rt`](https://github.com/DanielHou315/overleaf-mcp-rt) | Session authentication plus native OT | Real-time file and compile tooling focused on self-hosted Community Edition |
+| Git-based projects: [`OverleafMCP`](https://github.com/mjyoo2/OverleafMCP), [`overleaf-mcp-server`](https://github.com/YounesBensafia/overleaf-mcp-server), and [`vibeTeX`](https://github.com/oscardvs/vibetex) | Primarily the Overleaf Git bridge | Git-backed synchronization, editing, and history workflows |
 
-The discussion record and source range are separate Overleaf objects. The thread endpoint provides messages, while live document state provides the attachment and status metadata.
+Review-range investigation was informed by [`Overleaf Comment Exporter`](https://github.com/salokr/overleaf-comment-exporter). Real-time protocol behavior was informed by [`Overleaf Workshop`](https://github.com/iamhyc/Overleaf-Workshop).
 
-</details>
-
-<details>
-<summary><strong>Protocol and reliability notes</strong></summary>
+<details><summary><strong>Protocol and reliability notes</strong></summary>
 
 - The collaboration adapter implements the Socket.IO 0.9 wire format used by the targeted Overleaf client family. Project bootstrap rejects unsupported protocol versions.
 - ShareJS text OT and history-OT are normalized behind one document interface. Visible history-OT offsets account for tracked deletions retained in the raw snapshot.
@@ -221,6 +222,16 @@ The discussion record and source range are separate Overleaf objects. The thread
 - ShareJS comment status uses the dedicated REST action. History-OT comment status is part of the document operation and snapshot.
 
 Protocol fixtures under `test/fixtures/protocol` are sanitized: cookies, user data, project and document IDs, and document content are removed.
+
+</details>
+
+<details><summary><strong>Review-thread location behavior</strong></summary>
+
+Thread messages, authors, and resolution state come from `/project/:id/threads`. When the deployment exposes `/project/:id/ranges`, that project-wide index identifies the documents containing filtered threads. Only those documents are joined to calculate line and column positions and quoted context.
+
+If a usable project-wide range index is unavailable, a project-wide call returns threads with `positionsUnavailable: true`; it never scans every document silently. Supplying `filePath` joins only that document and resolves its ShareJS ranges or history-OT comment state. Threads without a document range are returned as `unlocated`.
+
+The discussion record and source range are separate Overleaf objects. The thread endpoint provides messages, while live document state provides the attachment and status metadata.
 
 </details>
 
