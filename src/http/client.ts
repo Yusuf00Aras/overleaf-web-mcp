@@ -1,6 +1,7 @@
 import type { CookieJar } from 'tough-cookie'
 
 import { AUTH_LOGIN_INSTRUCTION, McpError } from '../core/errors.js'
+import { USER_AGENT } from '../version.js'
 
 type Fetcher = (input: string, init?: RequestInit) => Promise<Response>
 
@@ -54,7 +55,7 @@ export class OverleafHttpClient {
     const cookies = await this.jar.getCookieString(url)
     if (cookies) headers.set('cookie', cookies)
     headers.set('accept', 'application/json, text/plain, */*')
-    headers.set('user-agent', 'overleaf-web-mcp/0.1')
+    headers.set('user-agent', USER_AGENT)
     if (body !== undefined && !(body instanceof FormData)) {
       headers.set('content-type', 'application/json')
     }

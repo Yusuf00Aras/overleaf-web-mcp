@@ -148,7 +148,7 @@ export function makeUpdate(
     doc: docId,
     v: version,
     op: operation,
-    // V1 callers omit metadata for untracked writes; the hook preserves a future tracked-write path.
+    // ShareJS tracked writes attach author metadata; untracked and history-OT writes omit it here.
     ...(trackingMetadata === undefined ? {} : { meta: trackingMetadata }),
   }
 }

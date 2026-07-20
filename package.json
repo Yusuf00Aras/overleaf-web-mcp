@@ -1,7 +1,7 @@
 {
   "name": "overleaf-web-mcp",
-  "version": "0.1.1",
-  "description": "Unofficial MCP server for browsing, editing, organizing, compiling, and reviewing Overleaf projects through an authenticated web session.",
+  "version": "0.1.2",
+  "description": "Unofficial MCP server for browsing, tracked writing, organizing, compiling, reviewing, and monitoring version history in Overleaf projects through an authenticated web session.",
   "author": "Mohammad Askari",
   "license": "MIT",
   "repository": {
@@ -74,6 +74,8 @@
     "project-management",
     "compilation",
     "collaboration",
-    "comments"
+    "comments",
+    "track-changes",
+    "version-history"
   ]
 }

@@ -2,6 +2,7 @@ import WebSocket from 'ws'
 import type { CookieJar } from 'tough-cookie'
 
 import { AUTH_LOGIN_INSTRUCTION, McpError } from '../core/errors.js'
+import { USER_AGENT } from '../version.js'
 import { ProjectConnection, type JoinProjectData } from './project-connection.js'
 import { SocketIo09Peer, type WebSocketPeer } from './socketio09-client.js'
 import { parseHandshake } from './socketio09-codec.js'
@@ -60,7 +61,7 @@ export async function openProjectConnection(
       headers: {
         accept: 'text/plain',
         ...(cookie ? { cookie } : {}),
-        'user-agent': 'overleaf-web-mcp/0.1',
+        'user-agent': USER_AGENT,
       },
       signal: AbortSignal.timeout(timeoutMs),
       redirect: 'follow',
@@ -100,7 +101,7 @@ export async function openProjectConnection(
     headers: {
       ...(websocketCookie ? { Cookie: websocketCookie } : {}),
       Origin: baseUrl,
-      'User-Agent': 'overleaf-web-mcp/0.1',
+      'User-Agent': USER_AGENT,
     },
   })
   const peer = new SocketIo09Peer(socket)

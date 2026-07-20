@@ -9,6 +9,7 @@ describe('authenticated HTTP client', () => {
     await jar.setCookie('overleaf.sid=session; Path=/; Secure', 'https://overleaf.test')
     const fetcher = vi.fn(async (_url: string, init?: RequestInit) => {
       expect(new Headers(init?.headers).get('cookie')).toContain('overleaf.sid=session')
+      expect(new Headers(init?.headers).get('user-agent')).toBe('overleaf-web-mcp/0.1.2')
       return new Response(JSON.stringify({ ok: true }), {
         status: 200,
         headers: { 'content-type': 'application/json' },

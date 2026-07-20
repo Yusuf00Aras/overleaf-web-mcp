@@ -22,6 +22,7 @@ describe('project socket bootstrap', () => {
       expect(String(_url)).toContain('/socket.io/1/')
       expect(String(_url)).toContain('projectId=project')
       expect(new Headers(init?.headers).get('cookie')).toContain('overleaf.sid=session')
+      expect(new Headers(init?.headers).get('user-agent')).toBe('overleaf-web-mcp/0.1.2')
       return new Response('SOCKET_SESSION:60:60:websocket', {
         headers: { 'set-cookie': 'GCLB=sticky-route; Path=/; Secure; HttpOnly' },
       })
@@ -31,6 +32,7 @@ describe('project socket bootstrap', () => {
       expect(url).toBe('wss://overleaf.test/socket.io/1/websocket/SOCKET_SESSION')
       expect(options.headers.Cookie).toContain('overleaf.sid=session')
       expect(options.headers.Cookie).toContain('GCLB=sticky-route')
+      expect(options.headers['User-Agent']).toBe('overleaf-web-mcp/0.1.2')
       setTimeout(() => {
         socket.readyState = 1
         socket.emit('open')
