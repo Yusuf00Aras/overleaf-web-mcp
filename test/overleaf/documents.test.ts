@@ -25,6 +25,17 @@ function shareDocument(content: string, version: number): JoinedDocument {
   }
 }
 
+function historyDocument(content: string, version: number): JoinedDocument {
+  return {
+    docId: 'doc',
+    protocol: 'history-ot',
+    version,
+    content,
+    ranges: { comments: [], changes: [] },
+    rawSnapshot: { content, comments: [], trackedChanges: [] },
+  }
+}
+
 function createHarness(
   documents: JoinedDocument[],
   submitError?: McpError,
@@ -40,7 +51,9 @@ function createHarness(
     getTree: () => [entity],
     joinDocument,
     leaveDocument: vi.fn(async () => undefined),
-    submitUpdate: vi.fn(async () => {
+    submitUpdate: vi.fn(async (docId: string, update: Record<string, unknown>) => {
+      void docId
+      void update
       if (submitError) throw submitError
     }),
     trackChangesActive: true,
@@ -94,6 +107,123 @@ describe('document API', () => {
       writeMode: 'untracked',
       protocol: 'sharejs',
     })
+  })
+
+  test('submits a tracked ShareJS update for the authenticated user even when tracking is inactive', async () => {
+    const before = shareDocument('old', 3)
+    const after = shareDocument('new', 4)
+    const { api, connection } = createHarness([before, after], undefined, {
+      currentUserId: 'user',
+    })
+    connection.trackChangesActive = false
+    const revision = createRevision({
+      projectId: 'project',
+      docId: 'doc',
+      protocol: 'sharejs',
+      otVersion: 3,
+      content: 'old',
+    })
+
+    const result = await api.writeFile('project', 'main.tex', revision, 'new', 'tracked')
+
+    expect(connection.submitUpdate).toHaveBeenCalledWith('doc', {
+      doc: 'doc',
+      v: 3,
+      op: [{ p: 0, d: 'old' }, { p: 0, i: 'new' }],
+      meta: { tc: 'user' },
+    })
+    expect(result).toMatchObject({
+      trackChangesActive: false,
+      writeMode: 'tracked',
+      protocol: 'sharejs',
+    })
+  })
+
+  test('submits tracked history-OT components with a shared timestamp', async () => {
+    const before = historyDocument('old', 3)
+    const after = historyDocument('newold', 4)
+    after.content = 'new'
+    after.rawSnapshot = {
+      content: 'newold',
+      comments: [],
+      trackedChanges: [
+        {
+          range: { pos: 0, length: 3 },
+          tracking: { type: 'insert', userId: 'user', ts: 'after' },
+        },
+        {
+          range: { pos: 3, length: 3 },
+          tracking: { type: 'delete', userId: 'user', ts: 'after' },
+        },
+      ],
+    }
+    const { api, connection } = createHarness([before, after], undefined, {
+      currentUserId: 'user',
+    })
+    const revision = createRevision({
+      projectId: 'project',
+      docId: 'doc',
+      protocol: 'history-ot',
+      otVersion: 3,
+      content: 'old',
+    })
+
+    const result = await api.writeFile('project', 'main.tex', revision, 'new', 'tracked')
+
+    const update = connection.submitUpdate.mock.calls[0]?.[1] as {
+      op: Array<{ textOperation: Array<Record<string, any>> }>
+    }
+    const components = update.op[0]!.textOperation.filter(
+      component => typeof component === 'object'
+    )
+    expect(components).toEqual([
+      {
+        i: 'new',
+        tracking: { type: 'insert', userId: 'user', ts: expect.any(String) },
+      },
+      {
+        r: 3,
+        tracking: { type: 'delete', userId: 'user', ts: expect.any(String) },
+      },
+    ])
+    expect(components[0]!.tracking.ts).toBe(components[1]!.tracking.ts)
+    expect(result.writeMode).toBe('tracked')
+  })
+
+  test('rejects tracked writes without an authenticated user identity', async () => {
+    const before = shareDocument('old', 3)
+    const { api, connection } = createHarness([before])
+    const revision = createRevision({
+      projectId: 'project',
+      docId: 'doc',
+      protocol: 'sharejs',
+      otVersion: 3,
+      content: 'old',
+    })
+
+    await expect(
+      api.writeFile('project', 'main.tex', revision, 'new', 'tracked')
+    ).rejects.toMatchObject({ code: 'PROTOCOL_UNSUPPORTED' })
+    expect(connection.submitUpdate).not.toHaveBeenCalled()
+  })
+
+  test('returns the requested tracked mode without submitting a no-op update', async () => {
+    const before = shareDocument('same', 3)
+    const { api, connection } = createHarness([before], undefined, {
+      currentUserId: 'user',
+    })
+    const revision = createRevision({
+      projectId: 'project',
+      docId: 'doc',
+      protocol: 'sharejs',
+      otVersion: 3,
+      content: 'same',
+    })
+
+    await expect(
+      api.writeFile('project', 'main.tex', revision, 'same', 'tracked')
+    ).resolves.toMatchObject({ writeMode: 'tracked', revision })
+    expect(connection.submitUpdate).not.toHaveBeenCalled()
   })
 
   test('recovers a timed-out write when the intended hash is live', async () => {

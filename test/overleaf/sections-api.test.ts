@@ -28,13 +28,15 @@ describe('section tools API', () => {
       'main.tex',
       'revision',
       sections.sections[0]!.id,
-      'Replacement\n'
+      'Replacement\n',
+      'tracked'
     )
     expect(documents.writeFile).toHaveBeenCalledWith(
       'project',
       'main.tex',
       'revision',
-      '\\section{One}\nReplacement\n\\section{Two}\nNext\n'
+      '\\section{One}\nReplacement\n\\section{Two}\nNext\n',
+      'tracked'
     )
   })
 })

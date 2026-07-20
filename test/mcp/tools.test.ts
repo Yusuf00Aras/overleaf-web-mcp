@@ -42,8 +42,65 @@ describe('MCP tool registration', () => {
     registerOverleafTools(server, fakeRuntime())
 
     expect([...registered.keys()]).toEqual(TOOL_NAMES)
-    expect(registered.get('write_file')?.config.description).toMatch(/untracked/i)
+    expect(registered.get('write_file')?.config.description).toMatch(/tracked/i)
     expect(registered.get('write_section')?.config.description).toMatch(/single file/i)
+  })
+
+  test('forwards explicit tracked mode through every text-writing tool', async () => {
+    const runtime = fakeRuntime()
+    const registered = new Map<string, (...args: any[]) => any>()
+    registerOverleafTools(
+      {
+        registerTool: (name: string, _config: any, handler: (...args: any[]) => any) => {
+          registered.set(name, handler)
+        },
+      },
+      runtime
+    )
+
+    await registered.get('write_file')?.({
+      projectId: 'project',
+      filePath: 'main.tex',
+      revision: 'revision',
+      content: 'content',
+      writeMode: 'tracked',
+    })
+    await registered.get('write_section')?.({
+      projectId: 'project',
+      filePath: 'main.tex',
+      revision: 'revision',
+      sectionId: 'section',
+      content: 'content',
+      writeMode: 'tracked',
+    })
+    await registered.get('create_file')?.({
+      projectId: 'project',
+      filePath: 'chapter.tex',
+      content: 'content',
+      writeMode: 'tracked',
+    })
+
+    expect(runtime.documents.writeFile).toHaveBeenCalledWith(
+      'project',
+      'main.tex',
+      'revision',
+      'content',
+      'tracked'
+    )
+    expect(runtime.sections.writeSection).toHaveBeenCalledWith(
+      'project',
+      'main.tex',
+      'revision',
+      'section',
+      'content',
+      'tracked'
+    )
+    expect(runtime.createFile).toHaveBeenCalledWith(
+      'project',
+      'chapter.tex',
+      'content',
+      'tracked'
+    )
   })
 
   test('returns structured tool errors without leaking stack traces', async () => {

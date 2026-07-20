@@ -46,9 +46,11 @@ export interface WriteFileResult {
   revision: string
   protocol: OtProtocol
   trackChangesActive: boolean
-  writeMode: 'untracked'
+  writeMode: WriteMode
   recoveredAfterTimeout?: boolean
 }
+
+export type WriteMode = 'untracked' | 'tracked'
 
 interface SubmitResult {
   before: JoinedDocument
@@ -62,6 +64,7 @@ export interface DocumentsApiOptions {
   maxUpdateChars?: number
   recoveryTimeoutMs?: number
   recoveryPollIntervalMs?: number
+  currentUserId?: string
 }
 
 async function safelyLeave(connection: DocumentConnection, docId: string): Promise<void> {
@@ -76,6 +79,7 @@ function resultFor(
   projectId: string,
   document: JoinedDocument,
   trackChangesActive: boolean,
+  writeMode: WriteMode,
   recoveredAfterTimeout = false
 ): WriteFileResult {
   return {
@@ -88,7 +92,7 @@ function resultFor(
     }),
     protocol: document.protocol,
     trackChangesActive,
-    writeMode: 'untracked',
+    writeMode,
     ...(recoveredAfterTimeout ? { recoveredAfterTimeout: true } : {}),
   }
 }
@@ -103,6 +107,7 @@ export class DocumentsApi {
   readonly #maxUpdateChars: number
   readonly #recoveryTimeoutMs: number
   readonly #recoveryPollIntervalMs: number
+  readonly #currentUserId: string | undefined
 
   constructor(
     connections: ConnectionProvider,
@@ -113,6 +118,7 @@ export class DocumentsApi {
     this.#maxUpdateChars = options.maxUpdateChars ?? 7 * 1024 * 1024
     this.#recoveryTimeoutMs = options.recoveryTimeoutMs ?? 30_000
     this.#recoveryPollIntervalMs = options.recoveryPollIntervalMs ?? 250
+    this.#currentUserId = options.currentUserId
   }
 
   async readFile(projectId: string, filePath: string): Promise<ReadFileResult> {
@@ -143,8 +149,15 @@ export class DocumentsApi {
     projectId: string,
     filePath: string,
     revision: string,
-    content: string
+    content: string,
+    writeMode: WriteMode = 'untracked'
   ): Promise<WriteFileResult> {
+    if (writeMode === 'tracked' && this.#currentUserId === undefined) {
+      throw new McpError(
+        'PROTOCOL_UNSUPPORTED',
+        'Tracked writes require an authenticated Overleaf user ID from the project bootstrap.'
+      )
+    }
     const target = normalizeLf(content)
     assertDocumentSize(target, this.#maxDocLength)
 
@@ -160,10 +173,13 @@ export class DocumentsApi {
           content: before.content,
         })
 
-        const operation =
-          before.protocol === 'sharejs'
-            ? buildShareJsOperation(before.content, target)
-            : buildHistoryTextOperation(before.rawSnapshot as HistorySnapshot, target)
+        const tracking =
+          writeMode === 'tracked'
+            ? { userId: this.#currentUserId!, timestamp: new Date().toISOString() }
+            : undefined
+        const operation = before.protocol === 'sharejs'
+          ? buildShareJsOperation(before.content, target)
+          : buildHistoryTextOperation(before.rawSnapshot as HistorySnapshot, target, tracking)
         if (operation.length === 0) {
           await safelyLeave(connection, entity.id)
           return {
@@ -172,7 +188,15 @@ export class DocumentsApi {
             trackChangesActive: connection.trackChangesActive,
           }
         }
-        const update = makeUpdate(entity.id, before.version, operation, before.protocol)
+        const update = makeUpdate(
+          entity.id,
+          before.version,
+          operation,
+          before.protocol,
+          writeMode === 'tracked' && before.protocol === 'sharejs'
+            ? { tc: this.#currentUserId }
+            : undefined
+        )
         assertUpdateSize(update, this.#maxUpdateChars)
 
         let submitError: unknown
@@ -212,7 +236,7 @@ export class DocumentsApi {
           },
         })
       }
-      return resultFor(projectId, submitted.live, submitted.trackChangesActive)
+      return resultFor(projectId, submitted.live, submitted.trackChangesActive, writeMode)
     }
 
     // Never retry an ambiguous write: observe whether the target, original, or a third state is live.
@@ -233,7 +257,7 @@ export class DocumentsApi {
         observationError = undefined
         // The intended hash proves the timed-out submission was applied.
         if (contentHash(recovery.live.content) === contentHash(target)) {
-          return resultFor(projectId, recovery.live, recovery.trackChangesActive, true)
+          return resultFor(projectId, recovery.live, recovery.trackChangesActive, writeMode, true)
         }
         const unchanged =
           recovery.live.protocol === submitted.before.protocol &&

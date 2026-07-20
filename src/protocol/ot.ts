@@ -17,6 +17,10 @@ export interface HistorySnapshot {
 
 export type ShareJsComponent = { p: number; i?: string; d?: string; c?: string; t?: string }
 export type HistoryOperation = Record<string, unknown>
+export interface HistoryTrackingContext {
+  userId: string
+  timestamp: string
+}
 
 function deletedRanges(snapshot: HistorySnapshot): RawRange[] {
   return (snapshot.trackedChanges ?? [])
@@ -68,17 +72,44 @@ export function buildShareJsOperation(before: string, after: string): ShareJsCom
 
 export function buildHistoryTextOperation(
   snapshot: HistorySnapshot,
-  targetVisibleContent: string
+  targetVisibleContent: string,
+  tracking?: HistoryTrackingContext
 ): HistoryOperation[] {
   const visible = historyVisibleContent(snapshot)
   const edit = createMinimalTextEdit(visible, targetVisibleContent)
   if (!edit) return []
   const start = visibleToSnapshotOffset(snapshot, edit.position)
   const end = visibleToSnapshotOffset(snapshot, edit.position + edit.deleteText.length)
-  const raw: Array<number | string> = []
+  const raw: Array<number | string | Record<string, unknown>> = []
   if (start > 0) raw.push(start)
-  if (edit.insertText) raw.push(edit.insertText)
-  if (end > start) raw.push(-(end - start))
+  if (edit.insertText) {
+    raw.push(
+      tracking === undefined
+        ? edit.insertText
+        : {
+            i: edit.insertText,
+            tracking: {
+              type: 'insert',
+              userId: tracking.userId,
+              ts: tracking.timestamp,
+            },
+          }
+    )
+  }
+  if (end > start) {
+    raw.push(
+      tracking === undefined
+        ? -(end - start)
+        : {
+            r: end - start,
+            tracking: {
+              type: 'delete',
+              userId: tracking.userId,
+              ts: tracking.timestamp,
+            },
+          }
+    )
+  }
   if (snapshot.content.length > end) raw.push(snapshot.content.length - end)
   return [{ textOperation: raw }]
 }

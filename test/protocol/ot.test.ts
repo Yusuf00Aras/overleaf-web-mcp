@@ -37,6 +37,81 @@ describe('OT operation adapters', () => {
     ])
   })
 
+  test('builds tracked history-OT replacements with one author and timestamp', () => {
+    expect(
+      buildHistoryTextOperation(
+        { content: 'alpha old omega' },
+        'alpha new omega',
+        { userId: 'user', timestamp: '2026-07-20T12:00:00.000Z' }
+      )
+    ).toEqual([
+      {
+        textOperation: [
+          6,
+          {
+            i: 'new',
+            tracking: {
+              type: 'insert',
+              userId: 'user',
+              ts: '2026-07-20T12:00:00.000Z',
+            },
+          },
+          {
+            r: 3,
+            tracking: {
+              type: 'delete',
+              userId: 'user',
+              ts: '2026-07-20T12:00:00.000Z',
+            },
+          },
+          6,
+        ],
+      },
+    ])
+  })
+
+  test('tracks Unicode edits across deletions retained in a history-OT snapshot', () => {
+    const snapshot = {
+      content: '😀oldHIDDENz',
+      trackedChanges: [
+        {
+          range: { pos: 5, length: 6 },
+          tracking: { type: 'delete' as const, userId: 'prior', ts: 'then' },
+        },
+      ],
+    }
+
+    expect(
+      buildHistoryTextOperation(snapshot, '😀newz', {
+        userId: 'user',
+        timestamp: '2026-07-20T12:00:00.000Z',
+      })
+    ).toEqual([
+      {
+        textOperation: [
+          2,
+          {
+            i: 'new',
+            tracking: {
+              type: 'insert',
+              userId: 'user',
+              ts: '2026-07-20T12:00:00.000Z',
+            },
+          },
+          {
+            r: 3,
+            tracking: {
+              type: 'delete',
+              userId: 'user',
+              ts: '2026-07-20T12:00:00.000Z',
+            },
+          },
+          7,
+        ],
+      },
+    ])
+  })
+
   test('builds protocol-specific comment and resolution operations', () => {
     expect(buildCommentOperation('sharejs', 'thread', 2, 4, 'text')).toEqual([
       { p: 2, c: 'text', t: 'thread' },

@@ -7,7 +7,7 @@ import type { OverleafToolRuntime } from './mcp/tools.js'
 import { AccountApi } from './overleaf/account.js'
 import { CommentsApi } from './overleaf/comments.js'
 import { CompileApi } from './overleaf/compile.js'
-import { DocumentsApi } from './overleaf/documents.js'
+import { DocumentsApi, type WriteMode } from './overleaf/documents.js'
 import { EntitiesApi } from './overleaf/entities.js'
 import { SectionsApi } from './overleaf/sections-api.js'
 import { resolveProjectPath } from './overleaf/tree.js'
@@ -112,6 +112,7 @@ export class OverleafRuntime implements OverleafToolRuntime {
       maxDocLength: bootstrap.maxDocLength ?? config.maxDocLength,
       maxUpdateChars: config.maxUpdateChars,
       recoveryTimeoutMs: config.recoveryTimeoutMs,
+      ...(bootstrap.userId === undefined ? {} : { currentUserId: bootstrap.userId }),
     })
     const entities = new EntitiesApi(http, connections)
     const sections = new SectionsApi(documents)
@@ -170,11 +171,34 @@ export class OverleafRuntime implements OverleafToolRuntime {
     }
   }
 
-  async createFile(projectId: string, filePath: string, content = ''): Promise<unknown> {
+  async createFile(
+    projectId: string,
+    filePath: string,
+    content = '',
+    writeMode: WriteMode = 'untracked'
+  ): Promise<unknown> {
+    if (writeMode === 'tracked' && content === '') {
+      throw new McpError(
+        'INVALID_ARGUMENT',
+        'Tracked file creation requires non-empty initial content.'
+      )
+    }
+    if (writeMode === 'tracked' && this.userId === undefined) {
+      throw new McpError(
+        'PROTOCOL_UNSUPPORTED',
+        'Tracked writes require an authenticated Overleaf user ID from the project bootstrap.'
+      )
+    }
     await this.entities.createEmptyFile(projectId, filePath)
     const created = await this.documents.readFile(projectId, filePath)
     if (content !== '') {
-      return await this.documents.writeFile(projectId, filePath, created.revision, content)
+      return await this.documents.writeFile(
+        projectId,
+        filePath,
+        created.revision,
+        content,
+        writeMode
+      )
     }
     return {
       revision: created.revision,

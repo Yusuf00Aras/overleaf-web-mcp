@@ -2,10 +2,35 @@ import { chmod, mkdtemp, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
-import { describe, expect, test } from 'vitest'
+import { describe, expect, test, vi } from 'vitest'
 
 import { readConfig } from '../src/config.js'
 import { OverleafRuntime } from '../src/runtime.js'
+
+function runtimeWithWrites(userId: string | null = 'user') {
+  const entities = { createEmptyFile: vi.fn(async () => undefined) }
+  const documents = {
+    readFile: vi.fn(async () => ({
+      content: '',
+      revision: 'revision',
+      newline: 'LF' as const,
+      protocol: 'sharejs' as const,
+      trackChangesActive: false,
+    })),
+    writeFile: vi.fn(async () => ({
+      revision: 'new-revision',
+      protocol: 'sharejs' as const,
+      trackChangesActive: false,
+      writeMode: 'tracked' as const,
+    })),
+  }
+  const runtime = Object.assign(Object.create(OverleafRuntime.prototype), {
+    entities,
+    documents,
+    ...(userId === null ? {} : { userId }),
+  }) as OverleafRuntime
+  return { runtime, entities, documents }
+}
 
 describe('runtime bootstrap', () => {
   test('loads a protected browser cookie jar and discovers account metadata', async () => {
@@ -48,5 +73,37 @@ describe('runtime bootstrap', () => {
       baseUrl: 'https://overleaf.test',
     })
     await runtime.close()
+  })
+
+  test('tracks non-empty initial file content when requested', async () => {
+    const { runtime, documents } = runtimeWithWrites()
+
+    await runtime.createFile('project', 'chapter.tex', 'Tracked content', 'tracked')
+
+    expect(documents.writeFile).toHaveBeenCalledWith(
+      'project',
+      'chapter.tex',
+      'revision',
+      'Tracked content',
+      'tracked'
+    )
+  })
+
+  test('rejects tracked empty file creation before creating an entity', async () => {
+    const { runtime, entities } = runtimeWithWrites()
+
+    await expect(
+      runtime.createFile('project', 'chapter.tex', '', 'tracked')
+    ).rejects.toMatchObject({ code: 'INVALID_ARGUMENT' })
+    expect(entities.createEmptyFile).not.toHaveBeenCalled()
+  })
+
+  test('rejects tracked file creation without a user identity before creating an entity', async () => {
+    const { runtime, entities } = runtimeWithWrites(null)
+
+    await expect(
+      runtime.createFile('project', 'chapter.tex', 'Tracked content', 'tracked')
+    ).rejects.toMatchObject({ code: 'PROTOCOL_UNSUPPORTED' })
+    expect(entities.createEmptyFile).not.toHaveBeenCalled()
   })
 })

@@ -3,7 +3,7 @@ import { z } from 'zod'
 import { asMcpError, McpError } from '../core/errors.js'
 import type { AddCommentInput, CommentsApi } from '../overleaf/comments.js'
 import type { CompileApi } from '../overleaf/compile.js'
-import type { DocumentsApi } from '../overleaf/documents.js'
+import type { DocumentsApi, WriteMode } from '../overleaf/documents.js'
 import type { EntitiesApi, EntityAction } from '../overleaf/entities.js'
 import type { SectionsApi } from '../overleaf/sections-api.js'
 
@@ -36,7 +36,12 @@ export interface OverleafToolRuntime {
     'getProjectTree' | 'manageEntity' | 'uploadFile' | 'downloadFile'
   >
   documents: Pick<DocumentsApi, 'readFile' | 'writeFile'>
-  createFile(projectId: string, filePath: string, content?: string): Promise<unknown>
+  createFile(
+    projectId: string,
+    filePath: string,
+    content?: string,
+    writeMode?: WriteMode
+  ): Promise<unknown>
   sections: Pick<SectionsApi, 'getSections' | 'getSectionContent' | 'writeSection'>
   compile: Pick<CompileApi, 'compileProject' | 'stopCompile'>
   comments: Pick<
@@ -56,6 +61,9 @@ interface ToolRegistrar {
 const projectId = z.string().min(1).describe('Overleaf project ID')
 const filePath = z.string().min(1).describe('Project-relative path using forward slashes')
 const revision = z.string().min(1).describe('Opaque revision returned by a prior read or write')
+const writeMode = z.enum(['untracked', 'tracked']).default('untracked').describe(
+  'Use tracked to record inserted and deleted text as Overleaf tracked changes; defaults to untracked'
+)
 const position = z.object({
   line: z.number().int().positive(),
   column: z.number().int().positive(),
@@ -128,24 +136,41 @@ export function registerOverleafTools(server: ToolRegistrar, runtime: OverleafTo
     'write_file',
     {
       description:
-        'Replace a text document using a minimal verified OT edit. V1 writes are untracked even when review mode is active.',
-      inputSchema: { projectId, filePath, revision, content: z.string() },
+        'Replace a text document using a minimal verified OT edit, optionally recorded as tracked changes.',
+      inputSchema: { projectId, filePath, revision, content: z.string(), writeMode },
       annotations: { destructiveHint: true, idempotentHint: false },
     },
-    handler(async (args: { projectId: string; filePath: string; revision: string; content: string }) =>
-      await runtime.documents.writeFile(args.projectId, args.filePath, args.revision, args.content)
+    handler(async (args: {
+      projectId: string
+      filePath: string
+      revision: string
+      content: string
+      writeMode: WriteMode
+    }) =>
+      await runtime.documents.writeFile(
+        args.projectId,
+        args.filePath,
+        args.revision,
+        args.content,
+        args.writeMode
+      )
     )
   )
   server.registerTool(
     'create_file',
     {
       description:
-        'Create a text document and return its resulting revision. Initial content is written untracked.',
-      inputSchema: { projectId, filePath, content: z.string().optional() },
+        'Create a text document and optionally record non-empty initial content as tracked changes.',
+      inputSchema: { projectId, filePath, content: z.string().optional(), writeMode },
       annotations: { destructiveHint: false, idempotentHint: false },
     },
-    handler(async (args: { projectId: string; filePath: string; content?: string }) =>
-      await runtime.createFile(args.projectId, args.filePath, args.content)
+    handler(async (args: {
+      projectId: string
+      filePath: string
+      content?: string
+      writeMode: WriteMode
+    }) =>
+      await runtime.createFile(args.projectId, args.filePath, args.content, args.writeMode)
     )
   )
   server.registerTool(
@@ -246,13 +271,14 @@ export function registerOverleafTools(server: ToolRegistrar, runtime: OverleafTo
     'write_section',
     {
       description:
-        'Replace one section body in a single file using a revision-checked untracked write. Included files are not traversed.',
+        'Replace one section body in a single file using a revision-checked write, optionally recorded as tracked changes. Included files are not traversed.',
       inputSchema: {
         projectId,
         filePath,
         revision,
         sectionId: z.string().min(1),
         content: z.string(),
+        writeMode,
       },
       annotations: { destructiveHint: true, idempotentHint: false },
     },
@@ -262,13 +288,15 @@ export function registerOverleafTools(server: ToolRegistrar, runtime: OverleafTo
       revision: string
       sectionId: string
       content: string
+      writeMode: WriteMode
     }) =>
       await runtime.sections.writeSection(
         args.projectId,
         args.filePath,
         args.revision,
         args.sectionId,
-        args.content
+        args.content,
+        args.writeMode
       )
     )
   )

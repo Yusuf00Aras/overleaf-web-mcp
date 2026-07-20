@@ -1,7 +1,7 @@
 import { McpError } from '../core/errors.js'
 import { findSections, replaceSection, type LatexSection } from '../core/sections.js'
 import { normalizeLf } from '../core/text.js'
-import type { ReadFileResult, WriteFileResult } from './documents.js'
+import type { ReadFileResult, WriteFileResult, WriteMode } from './documents.js'
 
 interface SectionDocuments {
   readFile(projectId: string, filePath: string): Promise<ReadFileResult>
@@ -9,7 +9,8 @@ interface SectionDocuments {
     projectId: string,
     filePath: string,
     revision: string,
-    content: string
+    content: string,
+    writeMode?: WriteMode
   ): Promise<WriteFileResult>
 }
 
@@ -52,10 +53,11 @@ export class SectionsApi {
     filePath: string,
     revision: string,
     sectionId: string,
-    content: string
+    content: string,
+    writeMode: WriteMode = 'untracked'
   ): Promise<WriteFileResult> {
     const file = await this.#documents.readFile(projectId, filePath)
     const updated = replaceSection(file.content, sectionId, normalizeLf(content))
-    return await this.#documents.writeFile(projectId, filePath, revision, updated)
+    return await this.#documents.writeFile(projectId, filePath, revision, updated, writeMode)
   }
 }
