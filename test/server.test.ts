@@ -30,6 +30,7 @@ function fakeRuntime() {
       addComment: vi.fn(),
       setCommentStatus: vi.fn(),
     },
+    history: { monitorProjectHistory: vi.fn() },
   }
 }
 

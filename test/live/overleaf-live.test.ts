@@ -90,4 +90,24 @@ describe.skipIf(!enabled)('disposable Overleaf live project', () => {
       }
     }
   )
+
+  test.skipIf(process.env.RUN_OVERLEAF_LIVE_HISTORY_TESTS !== '1')(
+    'reads recent project history without mutation',
+    async () => {
+      const result = await runtime.history.monitorProjectHistory(projectId)
+      expect(result.projectId).toBe(projectId)
+      expect(Array.isArray(result.updates)).toBe(true)
+      if (result.updates[0]) {
+        expect(Number.isInteger(result.updates[0].fromVersion)).toBe(true)
+        expect(Number.isInteger(result.updates[0].toVersion)).toBe(true)
+        expect(new Date(result.updates[0].startedAt).toISOString()).toBe(
+          result.updates[0].startedAt
+        )
+        expect(new Date(result.updates[0].endedAt).toISOString()).toBe(
+          result.updates[0].endedAt
+        )
+        expect(JSON.stringify(result.updates[0])).not.toContain('"email"')
+      }
+    }
+  )
 })

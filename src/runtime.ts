@@ -9,6 +9,7 @@ import { CommentsApi } from './overleaf/comments.js'
 import { CompileApi } from './overleaf/compile.js'
 import { DocumentsApi, type WriteMode } from './overleaf/documents.js'
 import { EntitiesApi } from './overleaf/entities.js'
+import { HistoryApi } from './overleaf/history.js'
 import { SectionsApi } from './overleaf/sections-api.js'
 import { resolveProjectPath } from './overleaf/tree.js'
 import { ProjectConnectionCache } from './protocol/connection-cache.js'
@@ -36,6 +37,7 @@ export class OverleafRuntime implements OverleafToolRuntime {
   readonly sections: SectionsApi
   readonly compile: CompileApi
   readonly comments: CommentsApi
+  readonly history: HistoryApi
   readonly connections: ProjectConnectionCache<ProjectConnection>
   readonly userId?: string
 
@@ -49,6 +51,7 @@ export class OverleafRuntime implements OverleafToolRuntime {
     sections: SectionsApi
     compile: CompileApi
     comments: CommentsApi
+    history: HistoryApi
     connections: ProjectConnectionCache<ProjectConnection>
     userId?: string
   }) {
@@ -61,6 +64,7 @@ export class OverleafRuntime implements OverleafToolRuntime {
     this.sections = options.sections
     this.compile = options.compile
     this.comments = options.comments
+    this.history = options.history
     this.connections = options.connections
     if (options.userId !== undefined) this.userId = options.userId
   }
@@ -131,6 +135,7 @@ export class OverleafRuntime implements OverleafToolRuntime {
       recoveryTimeoutMs: config.recoveryTimeoutMs,
       ...(bootstrap.userId === undefined ? {} : { currentUserId: bootstrap.userId }),
     })
+    const history = new HistoryApi(http)
 
     return new OverleafRuntime({
       config,
@@ -142,6 +147,7 @@ export class OverleafRuntime implements OverleafToolRuntime {
       sections,
       compile,
       comments,
+      history,
       connections,
       ...(bootstrap.userId === undefined ? {} : { userId: bootstrap.userId }),
     })

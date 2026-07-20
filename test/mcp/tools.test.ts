@@ -27,6 +27,7 @@ function fakeRuntime() {
       addComment: vi.fn(),
       setCommentStatus: vi.fn(),
     },
+    history: { monitorProjectHistory: vi.fn() },
   }
 }
 
@@ -126,5 +127,27 @@ describe('MCP tool registration', () => {
     expect(result).toMatchObject({ isError: true })
     expect(JSON.parse(result.content[0].text)).toMatchObject({ code: 'AUTH_EXPIRED' })
     expect(result.content[0].text).not.toContain('stack')
+  })
+
+  test('registers a read-only history monitor and forwards its cursor', async () => {
+    const runtime = fakeRuntime()
+    const registered = new Map<string, { config: any; handler: (...args: any[]) => any }>()
+    registerOverleafTools(
+      {
+        registerTool: (name: string, config: any, handler: (...args: any[]) => any) => {
+          registered.set(name, { config, handler })
+        },
+      },
+      runtime
+    )
+
+    expect(registered.get('monitor_project_history')?.config.annotations).toEqual({
+      readOnlyHint: true,
+    })
+    await registered.get('monitor_project_history')?.handler({
+      projectId: 'project',
+      sinceVersion: 12,
+    })
+    expect(runtime.history.monitorProjectHistory).toHaveBeenCalledWith('project', 12)
   })
 })

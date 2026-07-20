@@ -5,6 +5,7 @@ import type { AddCommentInput, CommentsApi } from '../overleaf/comments.js'
 import type { CompileApi } from '../overleaf/compile.js'
 import type { DocumentsApi, WriteMode } from '../overleaf/documents.js'
 import type { EntitiesApi, EntityAction } from '../overleaf/entities.js'
+import type { HistoryApi } from '../overleaf/history.js'
 import type { SectionsApi } from '../overleaf/sections-api.js'
 
 export const TOOL_NAMES = [
@@ -26,6 +27,7 @@ export const TOOL_NAMES = [
   'reply_to_comment',
   'add_comment',
   'set_comment_status',
+  'monitor_project_history',
 ] as const
 
 export interface OverleafToolRuntime {
@@ -48,6 +50,7 @@ export interface OverleafToolRuntime {
     CommentsApi,
     'listComments' | 'replyToComment' | 'addComment' | 'setCommentStatus'
   >
+  history: Pick<HistoryApi, 'monitorProjectHistory'>
 }
 
 interface ToolRegistrar {
@@ -401,5 +404,20 @@ export function registerOverleafTools(server: ToolRegistrar, runtime: OverleafTo
       threadId: string
       status: 'open' | 'resolved'
     }) => await runtime.comments.setCommentStatus(args))
+  )
+  server.registerTool(
+    'monitor_project_history',
+    {
+      description:
+        'Poll one recent project-history window and return updates newer than an optional version cursor.',
+      inputSchema: {
+        projectId,
+        sinceVersion: z.number().int().nonnegative().optional(),
+      },
+      annotations: { readOnlyHint: true },
+    },
+    handler(async (args: { projectId: string; sinceVersion?: number }) =>
+      await runtime.history.monitorProjectHistory(args.projectId, args.sinceVersion)
+    )
   )
 }
