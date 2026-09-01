@@ -118,15 +118,29 @@ The server registers 19 tools. Expand only the areas you need.
 
 | Tool | Purpose |
 | --- | --- |
-| `get_project_tree` | Return the current file and folder tree with paths and entity IDs |
+| `get_project_tree` | Return the file and folder tree with paths, entity IDs, hashes, and the project's root document, compiler, and image |
 | `read_file` | Read LF-normalized text and its opaque revision |
-| `write_file` | Replace text through a minimal verified OT update; optionally use tracked changes |
+| `write_file` | Replace text through a minimal verified OT update, from `content` or `localPath`; optionally use tracked changes |
 | `create_file` | Create a text document and optionally track non-empty initial content |
 | `manage_entity` | Create folders and rename, move, or confirmed-delete entities |
-| `upload_file` | Upload a local binary file to a project folder |
+| `upload_file` | Upload a local file to a project folder, replacing any entity already at that path |
 | `download_file` | Download a document or binary file to an explicit local path |
 
 `write_file` and non-empty `create_file` content accept `writeMode: "untracked" | "tracked"`. The default is `"untracked"` for backward compatibility. Tracked file creation requires non-empty initial content; creating the file entity itself remains a normal project-tree operation.
+
+**Choosing between `write_file` and `upload_file`:**
+
+| Need | Tool | Revision check | Tracked changes | Content source |
+| --- | --- | :---: | :---: | --- |
+| Small edit, or concurrent collaborators possible | `write_file` with `content` | yes | optional | inline |
+| Replace a large text file safely | `write_file` with `localPath` | yes | optional | disk |
+| Replace a binary, or push text when nobody else is editing | `upload_file` | no | never | disk |
+
+`write_file` accepts exactly one of `content` and `localPath`. Neither is limited by file size in practice: `DOC_TOO_LARGE` applies at the advertised `ol-maxDocLength` (2,097,152 UTF-16 code units by default) and `UPDATE_TOO_LARGE` at 7,340,032 serialized characters, so a 115 KB document uses about 5% of the document limit. The practical ceiling is the MCP client's tool-argument budget, which is what `localPath` avoids.
+
+`upload_file` upserts by path. When an entity already exists at the destination, Overleaf replaces its content in place and the `entity_id` does not change; otherwise a new entity is created. Overleaf, not the caller, decides whether the result is a text `doc` or a binary `file`, by extension and UTF-8 validity, so `upload_file` is a valid way to replace `.tex`, `.bib`, and `.bst` documents from disk. Replacing a `doc` this way is a blind write: it carries no revision check and is never recorded as a tracked change. Uploading text where a binary already exists, or the reverse, is rejected as `INVALID_ARGUMENT` with Overleaf's `duplicate_file_name` code rather than replacing the entity.
+
+`download_file` refuses to replace an existing local file unless `overwrite: true` is passed.
 
 </details>
 
@@ -148,8 +162,10 @@ Section parsing is single-file only. It recognizes starred headings and optional
 
 | Tool | Purpose |
 | --- | --- |
-| `compile_project` | Compile a project using a selected root document |
+| `compile_project` | Compile a project, defaulting to the root document configured in Overleaf |
 | `stop_compile` | Stop the active compile for a project |
+
+`compile_project.rootFilePath` is optional. Omitted, it compiles the root document configured in the project itself, which is the same document the web UI's Recompile button builds; `get_project_tree` reports that path as `rootDocPath`. Supplying `rootFilePath` overrides the root for that call only and does not change the project's settings. A project with no configured root and no `rootFilePath` returns `INVALID_ARGUMENT`.
 
 </details>
 
@@ -185,6 +201,8 @@ Key safety contracts:
 - Content writes use minimal OT edits and are verified against a freshly joined document. Ambiguous writes are observed during a bounded recovery window and are never retried automatically.
 - Explicit tracked writes never silently fall back to untracked writes. They require an authenticated user ID, while `trackChangesActive` separately reports the project state observed at connection time.
 - `manage_entity` deletion requires `confirmPath` to exactly equal `path`.
+- `get_project_tree` reports `hash` as a **git blob hash**, `sha1("blob " + byteLength + "\0" + content)`, which is exactly what `git hash-object <file>` prints. Plain `sha1sum` never matches, because it omits the header. The hash is present only on binary `file` entities; Overleaf stores no content hash for `doc` entities, so text documents must be compared by reading their content.
+- `upload_file` replaces an existing entity in place with no revision check, and is annotated `destructiveHint: true`.
 
 ## Common workflows
 
@@ -236,9 +254,25 @@ On the next poll, pass the previous `nextSinceVersion` as `sinceVersion`. Only u
 </details>
 
 <details>
+<summary><strong>Upload only the binaries that actually changed</strong></summary>
+
+`get_project_tree` reports a git blob hash for every binary file entity, so a local folder can be compared against a project without downloading anything:
+
+```bash
+# For each local figure, compare git's own hash against the project tree's hash field.
+for file in figures/*.png; do
+  printf '%s %s\n' "$(git hash-object "$file")" "$file"
+done
+```
+
+Match each hash against the `hash` of the entity at the same path in `get_project_tree`, then call `upload_file` only for the paths that differ or are missing. Text documents have no `hash` and are excluded from this comparison; compare those with `read_file` instead.
+
+</details>
+
+<details>
 <summary><strong>Compile a project</strong></summary>
 
-1. Call `compile_project` with the selected root document.
+1. Call `compile_project`, with no `rootFilePath` to build the project's configured root document.
 2. Use `stop_compile` to stop an active compile.
 
 </details>
@@ -360,6 +394,8 @@ npm test
 npm run build
 npm pack --dry-run
 ```
+
+Every push and pull request runs the same checks in CI; releases run them again before publishing.
 
 Unit and deterministic integration tests cover revision identity, Unicode positions, section parsing, tracked and untracked OT operations, history normalization, update limits, queue/cache behavior, Socket.IO frames, timeout recovery, comment attachment, file-tree events, and MCP registration.
 
