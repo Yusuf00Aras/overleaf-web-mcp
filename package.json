@@ -1,6 +1,6 @@
 {
   "name": "overleaf-web-mcp",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "description": "Unofficial MCP server for browsing, tracked writing, organizing, compiling, reviewing, and monitoring version history in Overleaf projects through an authenticated web session.",
   "author": "Mohammad Askari",
   "license": "MIT",
@@ -28,6 +28,7 @@
     "dist",
     "docs/assets/overleaf-web-mcp-workflow.webp",
     "README.md",
+    "CHANGELOG.md",
     "LICENSE"
   ],
   "publishConfig": {
