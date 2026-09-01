@@ -2,6 +2,7 @@ import { CookieJar } from 'tough-cookie'
 import { describe, expect, test, vi } from 'vitest'
 
 import { OverleafHttpClient } from '../../src/http/client.js'
+import { USER_AGENT } from '../../src/version.js'
 
 describe('authenticated HTTP client', () => {
   test('adds cookies and parses JSON responses', async () => {
@@ -9,7 +10,7 @@ describe('authenticated HTTP client', () => {
     await jar.setCookie('overleaf.sid=session; Path=/; Secure', 'https://overleaf.test')
     const fetcher = vi.fn(async (_url: string, init?: RequestInit) => {
       expect(new Headers(init?.headers).get('cookie')).toContain('overleaf.sid=session')
-      expect(new Headers(init?.headers).get('user-agent')).toBe('overleaf-web-mcp/0.1.2')
+      expect(new Headers(init?.headers).get('user-agent')).toBe(USER_AGENT)
       return new Response(JSON.stringify({ ok: true }), {
         status: 200,
         headers: { 'content-type': 'application/json' },
@@ -34,6 +35,44 @@ describe('authenticated HTTP client', () => {
     await expect(client.getJson('/user/projects')).rejects.toMatchObject({
       code: 'AUTH_EXPIRED',
       message: expect.stringMatching(/overleaf-web-mcp login/i),
+    })
+  })
+
+  test('surfaces an Overleaf error code without carrying response content', async () => {
+    const client = new OverleafHttpClient({
+      baseUrl: 'https://overleaf.test',
+      jar: new CookieJar(),
+      fetcher: async () =>
+        new Response(
+          JSON.stringify({ success: false, error: 'duplicate_file_name', detail: 'main.tex' }),
+          { status: 422, headers: { 'content-type': 'application/json' } }
+        ),
+    })
+
+    await expect(client.postJson('/project/p/upload')).rejects.toMatchObject({
+      code: 'REMOTE_ERROR',
+      details: { status: 422, overleafError: 'duplicate_file_name' },
+    })
+  })
+
+  test('ignores error bodies that are free text rather than a code', async () => {
+    const client = new OverleafHttpClient({
+      baseUrl: 'https://overleaf.test',
+      jar: new CookieJar(),
+      fetcher: async () =>
+        new Response(JSON.stringify({ error: 'Something went wrong with main.tex' }), {
+          status: 500,
+          headers: { 'content-type': 'application/json' },
+        }),
+    })
+
+    // Only a short lowercase identifier is propagated, so document text can never leak.
+    await expect(client.postJson('/project/p/upload')).rejects.toMatchObject({
+      code: 'REMOTE_ERROR',
+      details: { status: 500 },
+    })
+    await expect(client.postJson('/project/p/upload')).rejects.not.toMatchObject({
+      details: { overleafError: expect.anything() },
     })
   })
 

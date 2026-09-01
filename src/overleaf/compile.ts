@@ -14,30 +14,46 @@ export interface CompileResult {
   outputFiles: Array<Record<string, unknown>>
   clsiServerId?: string
   validationProblems?: unknown
+  /** The document actually compiled, whether named by the caller or taken from the project. */
+  rootFilePath?: string
 }
 
 export class CompileApi {
   readonly #http: JsonPoster
   readonly #resolvePath: (projectId: string, path: string, type: 'doc') => Promise<ProjectEntity>
   readonly #defaultTimeoutMs: number
+  readonly #resolveRootDocument:
+    | ((projectId: string) => Promise<ProjectEntity | undefined>)
+    | undefined
 
   constructor(
     http: JsonPoster,
     resolvePath: (projectId: string, path: string, type: 'doc') => Promise<ProjectEntity>,
-    defaultTimeoutMs = 120_000
+    defaultTimeoutMs = 120_000,
+    resolveRootDocument?: (projectId: string) => Promise<ProjectEntity | undefined>
   ) {
     this.#http = http
     this.#resolvePath = resolvePath
     this.#defaultTimeoutMs = defaultTimeoutMs
+    this.#resolveRootDocument = resolveRootDocument
   }
 
+  /**
+   * Compiles the project, defaulting to the root document configured in Overleaf itself.
+   *
+   * A blank Overleaf project ships with a stub `main.tex`, so a project whose real manuscript
+   * lives under another name compiles the stub unless a root is named or configured.
+   */
   async compileProject(
     projectId: string,
-    rootFilePath: string,
+    rootFilePath?: string,
     timeoutMs = this.#defaultTimeoutMs
   ): Promise<CompileResult> {
     const boundedTimeout = Math.max(1_000, Math.min(timeoutMs, 15 * 60_000))
-    const root = await this.#resolvePath(projectId, rootFilePath, 'doc')
+    const root =
+      rootFilePath === undefined
+        ? await this.#projectRootDocument(projectId)
+        : await this.#resolvePath(projectId, rootFilePath, 'doc')
     const result = await this.#http.postJson(
       `/project/${projectId}/compile`,
       {
@@ -49,10 +65,21 @@ export class CompileApi {
     ) as CompileResult
     if (result.status !== 'success') {
       throw new McpError('COMPILE_FAILED', `Overleaf compile finished with status ${result.status}.`, {
-        details: { result },
+        details: { result, rootFilePath: root.path },
       })
     }
-    return result
+    return { ...result, rootFilePath: root.path }
+  }
+
+  async #projectRootDocument(projectId: string): Promise<ProjectEntity> {
+    const root = await this.#resolveRootDocument?.(projectId)
+    if (root === undefined) {
+      throw new McpError(
+        'INVALID_ARGUMENT',
+        'This project has no root document configured in Overleaf. Pass rootFilePath, or set one in the project settings.'
+      )
+    }
+    return root
   }
 
   async stopCompile(projectId: string): Promise<{ stopped: true }> {

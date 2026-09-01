@@ -1,3 +1,7 @@
+import { mkdtemp, readFile, writeFile } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+
 import { describe, expect, test, vi } from 'vitest'
 
 import { McpError } from '../../src/core/errors.js'
@@ -45,6 +49,79 @@ describe('MCP tool registration', () => {
     expect([...registered.keys()]).toEqual(TOOL_NAMES)
     expect(registered.get('write_file')?.config.description).toMatch(/tracked/i)
     expect(registered.get('write_section')?.config.description).toMatch(/single file/i)
+  })
+
+  test('documents the tool count in the README so the badge cannot drift', async () => {
+    const readme = await readFile(new URL('../../README.md', import.meta.url), 'utf8')
+    const badge = /alt="(\d+) MCP tools"/u.exec(readme)?.[1]
+    const prose = /The server registers (\d+) tools/u.exec(readme)?.[1]
+
+    expect(badge).toBe(String(TOOL_NAMES.length))
+    expect(prose).toBe(String(TOOL_NAMES.length))
+  })
+
+  test('marks an in-place upload as destructive and lets a compile default its root', () => {
+    const registered = new Map<string, { config: any }>()
+    registerOverleafTools(
+      {
+        registerTool: (name: string, config: any) => {
+          registered.set(name, { config })
+        },
+      },
+      fakeRuntime()
+    )
+
+    // upload_file replaces an existing entity in place, so it must not advertise itself as safe.
+    expect(registered.get('upload_file')?.config.annotations).toMatchObject({
+      destructiveHint: true,
+    })
+    expect(registered.get('compile_project')?.config.description).not.toMatch(/rootDoc_id/u)
+    const rootFilePathSchema = registered.get('compile_project')?.config.inputSchema
+      .rootFilePath as { safeParse: (value: unknown) => { success: boolean } }
+    expect(rootFilePathSchema.safeParse(undefined).success).toBe(true)
+  })
+
+  test('accepts write_file content from disk and refuses ambiguous sources', async () => {
+    const runtime = fakeRuntime()
+    const registered = new Map<string, (...args: any[]) => any>()
+    registerOverleafTools(
+      {
+        registerTool: (name: string, _config: any, handler: (...args: any[]) => any) => {
+          registered.set(name, handler)
+        },
+      },
+      runtime
+    )
+    const directory = await mkdtemp(join(tmpdir(), 'overleaf-tool-'))
+    const localPath = join(directory, 'main.tex')
+    await writeFile(localPath, '\\section{From disk}\n')
+
+    await registered.get('write_file')?.({
+      projectId: 'project',
+      filePath: 'main.tex',
+      revision: 'revision',
+      localPath,
+      writeMode: 'untracked',
+    })
+    expect(runtime.documents.writeFile).toHaveBeenCalledWith(
+      'project',
+      'main.tex',
+      'revision',
+      '\\section{From disk}\n',
+      'untracked'
+    )
+
+    const ambiguous = await registered.get('write_file')?.({
+      projectId: 'project',
+      filePath: 'main.tex',
+      revision: 'revision',
+      content: 'inline',
+      localPath,
+      writeMode: 'untracked',
+    })
+    expect(ambiguous).toMatchObject({ isError: true })
+    expect(JSON.parse(ambiguous.content[0].text)).toMatchObject({ code: 'INVALID_ARGUMENT' })
+    expect(runtime.documents.writeFile).toHaveBeenCalledTimes(1)
   })
 
   test('forwards explicit tracked mode through every text-writing tool', async () => {

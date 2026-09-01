@@ -2,12 +2,15 @@ import { readFile, writeFile } from 'node:fs/promises'
 import { basename, posix } from 'node:path'
 
 import { McpError } from '../core/errors.js'
+import { gitBlobHash } from '../core/hash.js'
 import type { FifoQueue } from '../core/queue.js'
 import {
   normalizeProjectPath,
   parentPath,
   resolveProjectPath,
+  TREE_HASH_NOTE,
   type ProjectEntity,
+  type ProjectTree,
 } from './tree.js'
 
 interface EntityHttp {
@@ -22,6 +25,41 @@ interface TreeConnection {
   getTree(): ProjectEntity[]
   rootFolderId: string
   trackChangesActive: boolean
+  rootDocId?: string | undefined
+  compiler?: string | undefined
+  imageName?: string | undefined
+}
+
+/** Overleaf reports every upload rejection as HTTP 422 with a machine-readable code. */
+const UPLOAD_ERRORS: Record<string, string> = {
+  duplicate_file_name:
+    'Overleaf already holds an entity of the other kind at this path. A text document cannot replace a binary file, or the reverse; delete the existing entity first.',
+  invalid_filename:
+    'Overleaf rejected the file name. Names are limited to 150 characters and may not use reserved names or path separators.',
+  project_has_too_many_files: 'The project has reached its file-count limit.',
+  folder_not_found: 'The destination folder no longer exists in the project tree.',
+}
+
+interface UploadResponse {
+  success?: boolean
+  error?: string
+  entity_id?: string
+  entity_type?: string
+  hash?: string
+}
+
+function parseUploadResponse(value: unknown): UploadResponse {
+  const body: unknown = Array.isArray(value) ? value[0] : value
+  return body !== null && typeof body === 'object' ? body : {}
+}
+
+function uploadFailure(code: string | undefined): McpError {
+  const detail = code === undefined ? undefined : UPLOAD_ERRORS[code]
+  return new McpError(
+    'INVALID_ARGUMENT',
+    detail ?? 'Overleaf rejected the upload.',
+    code === undefined ? {} : { details: { overleafError: code } }
+  )
 }
 
 interface EntityConnections {
@@ -59,9 +97,33 @@ export class EntitiesApi {
     this.#connections = connections
   }
 
-  async getProjectTree(projectId: string): Promise<ProjectEntity[]> {
+  async getProjectTree(projectId: string): Promise<ProjectTree> {
     return await this.#connections.withConnection(projectId, async connection =>
-      await connection.queue.run(() => connection.getTree())
+      await connection.queue.run(() => {
+        const entities = connection.getTree()
+        const rootDocPath =
+          connection.rootDocId === undefined
+            ? undefined
+            : entities.find(entity => entity.id === connection.rootDocId)?.path
+        return {
+          entities,
+          ...(rootDocPath === undefined ? {} : { rootDocPath }),
+          ...(connection.compiler === undefined ? {} : { compiler: connection.compiler }),
+          ...(connection.imageName === undefined ? {} : { imageName: connection.imageName }),
+          trackChangesActive: connection.trackChangesActive,
+          hashNote: TREE_HASH_NOTE,
+        }
+      })
+    )
+  }
+
+  /** Resolves the project's configured root document, used when a compile names no root. */
+  async getRootDocument(projectId: string): Promise<ProjectEntity | undefined> {
+    return await this.#connections.withConnection(projectId, async connection =>
+      await connection.queue.run(() => {
+        if (connection.rootDocId === undefined) return undefined
+        return connection.getTree().find(entity => entity.id === connection.rootDocId)
+      })
     )
   }
 
@@ -152,28 +214,65 @@ export class EntitiesApi {
     return result
   }
 
+  /**
+   * Uploads a local file, replacing any entity already at the destination path.
+   *
+   * Overleaf upserts by name inside the destination folder, so an existing entity keeps its
+   * `entity_id` and has its content replaced. Overleaf, not the caller, decides whether the
+   * result is a text `doc` or a binary `file`, by extension and UTF-8 validity. Replacing a
+   * `doc` this way is a blind write: it carries no revision check and is never recorded as a
+   * tracked change, so a collaborator's concurrent edit is overwritten. Use `write_file` when
+   * that matters.
+   */
   async uploadFile(
     projectId: string,
     localPath: string,
-    destinationFolderPath = ''
+    destinationFolderPath = '',
+    destinationName?: string
   ): Promise<Record<string, unknown>> {
     const bytes = await readFile(localPath)
+    const name = destinationName ?? basename(localPath)
+    validateName(name)
+    const folderPath = destinationFolderPath === '' ? '' : normalizeProjectPath(destinationFolderPath)
+    const path = folderPath === '' ? name : normalizeProjectPath(posix.join(folderPath, name))
+    const localHash = gitBlobHash(bytes)
+
     const result = await this.#connections.withConnection(projectId, async connection =>
       await connection.queue.run(async () => {
-        const folderId = resolveFolderId(
-          connection,
-          destinationFolderPath === '' ? '' : normalizeProjectPath(destinationFolderPath)
-        )
+        const folderId = resolveFolderId(connection, folderPath)
+        // Captured before the upload, because afterwards the entity always exists.
+        const replaced = connection.getTree().some(entity => entity.path === path)
         const form = new FormData()
-        const name = basename(localPath)
         form.append('qqfile', new Blob([bytes]), name)
         form.append('name', name)
-        const upload = await this.#http.postForm(
-          `/project/${projectId}/upload?folder_id=${encodeURIComponent(folderId)}`,
-          form
-        )
+        let raw: unknown
+        try {
+          raw = await this.#http.postForm(
+            `/project/${projectId}/upload?folder_id=${encodeURIComponent(folderId)}`,
+            form
+          )
+        } catch (error) {
+          // Every Overleaf upload rejection is a 422 carrying a machine-readable code.
+          if (
+            error instanceof McpError &&
+            (error.details as { status?: number } | undefined)?.status === 422
+          ) {
+            throw uploadFailure((error.details as { overleafError?: string }).overleafError)
+          }
+          throw error
+        }
+        const body = parseUploadResponse(raw)
+        if (body.success === false) throw uploadFailure(body.error)
+        const entityType = body.entity_type
+        // Only binary file entities have a hash; Overleaf stores none for documents.
+        const hash =
+          body.hash ?? (entityType === undefined || entityType === 'file' ? localHash : undefined)
         return {
-          upload,
+          ...(body.entity_id === undefined ? {} : { entityId: body.entity_id }),
+          ...(entityType === undefined ? {} : { entityType }),
+          path,
+          replaced,
+          ...(hash === undefined ? {} : { hash }),
           trackChangesActive: connection.trackChangesActive,
           writeMode: 'untracked',
         }
@@ -183,7 +282,12 @@ export class EntitiesApi {
     return result
   }
 
-  async downloadFile(projectId: string, filePath: string, localPath: string): Promise<{ bytes: number }> {
+  async downloadFile(
+    projectId: string,
+    filePath: string,
+    localPath: string,
+    overwrite = false
+  ): Promise<{ bytes: number; localPath: string }> {
     const bytes = await this.#connections.withConnection(projectId, async connection =>
       await connection.queue.run(async () => {
         const entity = resolveProjectPath(connection.getTree(), filePath)
@@ -197,7 +301,19 @@ export class EntitiesApi {
         return await this.#http.getBytes(route)
       })
     )
-    await writeFile(localPath, bytes)
-    return { bytes: bytes.byteLength }
+    try {
+      // 'wx' fails rather than truncating a file the caller did not mean to replace.
+      await writeFile(localPath, bytes, overwrite ? undefined : { flag: 'wx' })
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'EEXIST') {
+        throw new McpError(
+          'INVALID_ARGUMENT',
+          `${localPath} already exists. Pass overwrite: true to replace it.`,
+          { cause: error }
+        )
+      }
+      throw error
+    }
+    return { bytes: bytes.byteLength, localPath }
   }
 }

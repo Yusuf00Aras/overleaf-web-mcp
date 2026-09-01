@@ -30,7 +30,8 @@ describe.skipIf(!enabled)('disposable Overleaf live project', () => {
   test('authenticates and joins the configured disposable project', async () => {
     await expect(runtime.authStatus()).resolves.toMatchObject({ authenticated: true })
     const tree = await runtime.entities.getProjectTree(projectId)
-    expect(Array.isArray(tree)).toBe(true)
+    expect(Array.isArray(tree.entities)).toBe(true)
+    expect(tree.hashNote).toMatch(/git blob hash/u)
   })
 
   test.skipIf(process.env.RUN_OVERLEAF_LIVE_REVIEW_TESTS !== '1')(
@@ -80,7 +81,7 @@ describe.skipIf(!enabled)('disposable Overleaf live project', () => {
         expect(trackingObserved).toBe(true)
       } finally {
         const tree = await runtime.entities.getProjectTree(projectId)
-        if (tree.some(entity => entity.path === filePath)) {
+        if (tree.entities.some(entity => entity.path === filePath)) {
           await runtime.entities.manageEntity(projectId, {
             action: 'delete',
             path: filePath,

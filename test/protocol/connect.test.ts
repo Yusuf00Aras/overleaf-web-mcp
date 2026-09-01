@@ -4,6 +4,7 @@ import { CookieJar } from 'tough-cookie'
 import { describe, expect, test, vi } from 'vitest'
 
 import { openProjectConnection } from '../../src/protocol/connect.js'
+import { USER_AGENT } from '../../src/version.js'
 
 class FakeSocket extends EventEmitter {
   readyState = 0
@@ -22,7 +23,7 @@ describe('project socket bootstrap', () => {
       expect(String(_url)).toContain('/socket.io/1/')
       expect(String(_url)).toContain('projectId=project')
       expect(new Headers(init?.headers).get('cookie')).toContain('overleaf.sid=session')
-      expect(new Headers(init?.headers).get('user-agent')).toBe('overleaf-web-mcp/0.1.2')
+      expect(new Headers(init?.headers).get('user-agent')).toBe(USER_AGENT)
       return new Response('SOCKET_SESSION:60:60:websocket', {
         headers: { 'set-cookie': 'GCLB=sticky-route; Path=/; Secure; HttpOnly' },
       })
@@ -32,7 +33,7 @@ describe('project socket bootstrap', () => {
       expect(url).toBe('wss://overleaf.test/socket.io/1/websocket/SOCKET_SESSION')
       expect(options.headers.Cookie).toContain('overleaf.sid=session')
       expect(options.headers.Cookie).toContain('GCLB=sticky-route')
-      expect(options.headers['User-Agent']).toBe('overleaf-web-mcp/0.1.2')
+      expect(options.headers['User-Agent']).toBe(USER_AGENT)
       setTimeout(() => {
         socket.readyState = 1
         socket.emit('open')

@@ -25,6 +25,8 @@ export interface JoinProjectData {
     rootFolder: RawFolder[]
     trackChangesState?: boolean | Record<string, boolean | undefined>
     rootDoc_id?: string
+    compiler?: string
+    imageName?: string
     [key: string]: unknown
   }
   permissionsLevel: string
@@ -215,6 +217,27 @@ export class ProjectConnection {
     const id = this.project.rootFolder[0]?._id
     if (!id) throw new McpError('PROTOCOL_UNSUPPORTED', 'Project has no root folder.')
     return id
+  }
+
+  /**
+   * The root document Overleaf compiles by default, as declared in the joinProject payload.
+   *
+   * Callers that compile without naming a root would otherwise silently build whatever stub
+   * a blank project shipped with, even when the real manuscript lives elsewhere.
+   */
+  get rootDocId(): string | undefined {
+    const id = this.project.rootDoc_id
+    return typeof id === 'string' && id !== '' ? id : undefined
+  }
+
+  get compiler(): string | undefined {
+    const compiler = this.project.compiler
+    return typeof compiler === 'string' && compiler !== '' ? compiler : undefined
+  }
+
+  get imageName(): string | undefined {
+    const imageName = this.project.imageName
+    return typeof imageName === 'string' && imageName !== '' ? imageName : undefined
   }
 
   getTree(): ProjectEntity[] {

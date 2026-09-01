@@ -1,7 +1,10 @@
-import { mkdtemp, writeFile } from 'node:fs/promises'
+import { mkdtemp, readFile, writeFile } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 
 import { describe, expect, test, vi } from 'vitest'
 
+import { McpError } from '../../src/core/errors.js'
 import { FifoQueue } from '../../src/core/queue.js'
 import { EntitiesApi } from '../../src/overleaf/entities.js'
 import type { ProjectEntity } from '../../src/overleaf/tree.js'
@@ -30,7 +33,7 @@ function harness() {
     postForm: vi.fn(async (path: string, form: FormData) => {
       void path
       void form
-      return [{ entity_id: 'upload' }]
+      return { success: true, entity_id: 'upload', entity_type: 'file' }
     }),
     getBytes: vi.fn(async () => new Uint8Array([1, 2, 3])),
   }
@@ -39,6 +42,9 @@ function harness() {
     getTree: () => tree,
     rootFolderId: 'root',
     trackChangesActive: false,
+    rootDocId: 'doc',
+    compiler: 'pdflatex',
+    imageName: 'texlive-full:2024.1',
   }
   const connections = {
     withConnection: async <T>(_id: string, operation: (value: typeof connection) => Promise<T>) =>
@@ -105,7 +111,7 @@ describe('entity API', () => {
 
   test('uploads the multipart filename field required by Overleaf', async () => {
     const { api, http } = harness()
-    const directory = await mkdtemp('/tmp/overleaf-upload-')
+    const directory = await mkdtemp(join(tmpdir(), 'overleaf-upload-'))
     const path = `${directory}/plot.png`
     await writeFile(path, 'png')
 
@@ -114,5 +120,81 @@ describe('entity API', () => {
     const form = http.postForm.mock.calls[0]?.[1]
     expect(form?.get('name')).toBe('plot.png')
     expect(form?.get('qqfile')).toBeInstanceOf(Blob)
+  })
+
+  test('reports the destination path, whether it replaced an entity, and a git blob hash', async () => {
+    const { api } = harness()
+    const directory = await mkdtemp(join(tmpdir(), 'overleaf-upload-'))
+    // A name absent from the shared tree fixture, so this upload creates rather than replaces.
+    const created = `${directory}/appendix-figure.png`
+    await writeFile(created, 'hello\n')
+
+    await expect(api.uploadFile('project', created)).resolves.toMatchObject({
+      entityId: 'upload',
+      entityType: 'file',
+      path: 'appendix-figure.png',
+      replaced: false,
+      // Identical to `git hash-object`, which is what Overleaf stores.
+      hash: 'ce013625030ba8dba906f756967f9e9ca394464a',
+    })
+  })
+
+  test('marks an upload over an existing path as a replacement and honours destinationName', async () => {
+    const { api, http } = harness()
+    const directory = await mkdtemp(join(tmpdir(), 'overleaf-upload-'))
+    const source = `${directory}/rewritten.tex`
+    await writeFile(source, 'text')
+
+    const result = await api.uploadFile('project', source, 'chapters', 'old.tex')
+
+    expect(result).toMatchObject({ path: 'chapters/old.tex', replaced: true })
+    expect(http.postForm.mock.calls[0]?.[1]?.get('name')).toBe('old.tex')
+  })
+
+  test('translates Overleaf upload rejections into actionable argument errors', async () => {
+    const { api, http } = harness()
+    http.postForm.mockRejectedValueOnce(
+      new McpError('REMOTE_ERROR', 'Overleaf returned HTTP 422.', {
+        details: { status: 422, path: '/upload', overleafError: 'duplicate_file_name' },
+      })
+    )
+    const directory = await mkdtemp(join(tmpdir(), 'overleaf-upload-'))
+    const source = `${directory}/plot.png`
+    await writeFile(source, 'png')
+
+    await expect(api.uploadFile('project', source)).rejects.toMatchObject({
+      code: 'INVALID_ARGUMENT',
+      details: { overleafError: 'duplicate_file_name' },
+    })
+  })
+
+  test('returns the root document, compiler, and image alongside the tree', async () => {
+    const { api } = harness()
+
+    await expect(api.getProjectTree('project')).resolves.toMatchObject({
+      rootDocPath: 'chapters/old.tex',
+      compiler: 'pdflatex',
+      imageName: 'texlive-full:2024.1',
+      trackChangesActive: false,
+    })
+    const result = await api.getProjectTree('project')
+    expect(result.entities.some(entity => entity.path === 'chapters/old.tex')).toBe(true)
+    expect(result.hashNote).toMatch(/git hash-object/u)
+  })
+
+  test('refuses to replace an existing local file unless overwrite is requested', async () => {
+    const { api } = harness()
+    const directory = await mkdtemp(join(tmpdir(), 'overleaf-download-'))
+    const target = `${directory}/existing.tex`
+    await writeFile(target, 'do not clobber')
+
+    await expect(
+      api.downloadFile('project', 'chapters/old.tex', target)
+    ).rejects.toMatchObject({ code: 'INVALID_ARGUMENT' })
+    await expect(readFile(target, 'utf8')).resolves.toBe('do not clobber')
+
+    await expect(
+      api.downloadFile('project', 'chapters/old.tex', target, true)
+    ).resolves.toMatchObject({ bytes: 3 })
   })
 })

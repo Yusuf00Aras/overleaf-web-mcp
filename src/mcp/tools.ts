@@ -1,6 +1,7 @@
 import { z } from 'zod'
 
 import { asMcpError, McpError } from '../core/errors.js'
+import { resolveTextContent } from '../core/local-file.js'
 import type { AddCommentInput, CommentsApi } from '../overleaf/comments.js'
 import type { CompileApi } from '../overleaf/compile.js'
 import type { DocumentsApi, WriteMode } from '../overleaf/documents.js'
@@ -116,7 +117,8 @@ export function registerOverleafTools(server: ToolRegistrar, runtime: OverleafTo
   server.registerTool(
     'get_project_tree',
     {
-      description: 'Return the current project file/folder tree with entity IDs and paths.',
+      description:
+        'Return the project file/folder tree with entity IDs and paths, plus the root document, compiler, and TeX Live image Overleaf compiles with. Each binary file entity carries hash, a git blob hash equal to `git hash-object <file>`; text documents have no hash and must be compared by reading their content.',
       inputSchema: { projectId },
       annotations: { readOnlyHint: true },
     },
@@ -139,22 +141,34 @@ export function registerOverleafTools(server: ToolRegistrar, runtime: OverleafTo
     'write_file',
     {
       description:
-        'Replace a text document using a minimal verified OT edit, optionally recorded as tracked changes.',
-      inputSchema: { projectId, filePath, revision, content: z.string(), writeMode },
+        'Replace a text document using a minimal verified OT edit, optionally recorded as tracked changes. Supply the new text either inline through content or from disk through localPath, never both; localPath keeps a whole-file replacement revision-checked without sending the file through the tool call.',
+      inputSchema: {
+        projectId,
+        filePath,
+        revision,
+        content: z.string().optional().describe('Complete replacement text, mutually exclusive with localPath'),
+        localPath: z
+          .string()
+          .min(1)
+          .optional()
+          .describe('Local UTF-8 text file holding the complete replacement, mutually exclusive with content'),
+        writeMode,
+      },
       annotations: { destructiveHint: true, idempotentHint: false },
     },
     handler(async (args: {
       projectId: string
       filePath: string
       revision: string
-      content: string
+      content?: string
+      localPath?: string
       writeMode: WriteMode
     }) =>
       await runtime.documents.writeFile(
         args.projectId,
         args.filePath,
         args.revision,
-        args.content,
+        await resolveTextContent(args),
         args.writeMode
       )
     )
@@ -220,31 +234,59 @@ export function registerOverleafTools(server: ToolRegistrar, runtime: OverleafTo
   server.registerTool(
     'upload_file',
     {
-      description: 'Upload a local binary file into an Overleaf project folder.',
+      description:
+        'Upload a local file into a project folder, replacing any entity already at that path in place and keeping its entity ID. Works for text documents as well as binaries; Overleaf decides which by extension and UTF-8 validity. Replacing a document this way is a blind write with no revision check that is never tracked, so prefer write_file when a collaborator may be editing.',
       inputSchema: {
         projectId,
         localPath: z.string().min(1),
         destinationFolderPath: z.string().default(''),
+        destinationName: z
+          .string()
+          .min(1)
+          .optional()
+          .describe('Name to store the file under; defaults to the local file name'),
       },
-      annotations: { destructiveHint: false, idempotentHint: false },
+      annotations: { destructiveHint: true, idempotentHint: false },
     },
-    handler(async (args: { projectId: string; localPath: string; destinationFolderPath: string }) =>
+    handler(async (args: {
+      projectId: string
+      localPath: string
+      destinationFolderPath: string
+      destinationName?: string
+    }) =>
       await runtime.entities.uploadFile(
         args.projectId,
         args.localPath,
-        args.destinationFolderPath
+        args.destinationFolderPath,
+        args.destinationName
       )
     )
   )
   server.registerTool(
     'download_file',
     {
-      description: 'Download one Overleaf document or binary file to an explicit local path.',
-      inputSchema: { projectId, filePath, localPath: z.string().min(1) },
+      description:
+        'Download one Overleaf document or binary file to an explicit local path. Refuses to replace an existing local file unless overwrite is set.',
+      inputSchema: {
+        projectId,
+        filePath,
+        localPath: z.string().min(1),
+        overwrite: z.boolean().default(false).describe('Replace localPath if it already exists'),
+      },
       annotations: { readOnlyHint: true },
     },
-    handler(async (args: { projectId: string; filePath: string; localPath: string }) =>
-      await runtime.entities.downloadFile(args.projectId, args.filePath, args.localPath)
+    handler(async (args: {
+      projectId: string
+      filePath: string
+      localPath: string
+      overwrite: boolean
+    }) =>
+      await runtime.entities.downloadFile(
+        args.projectId,
+        args.filePath,
+        args.localPath,
+        args.overwrite
+      )
     )
   )
   server.registerTool(
@@ -306,15 +348,16 @@ export function registerOverleafTools(server: ToolRegistrar, runtime: OverleafTo
   server.registerTool(
     'compile_project',
     {
-      description: 'Compile an Overleaf project using rootFilePath as rootDoc_id.',
+      description:
+        "Compile a project. Omit rootFilePath to build the root document configured in Overleaf, which is what the web UI's Recompile button uses; pass it to build a different document for this call only.",
       inputSchema: {
         projectId,
-        rootFilePath: filePath,
+        rootFilePath: filePath.optional(),
         timeoutMs: z.number().int().min(1_000).max(15 * 60_000).optional(),
       },
       annotations: { destructiveHint: false, idempotentHint: false },
     },
-    handler(async (args: { projectId: string; rootFilePath: string; timeoutMs?: number }) =>
+    handler(async (args: { projectId: string; rootFilePath?: string; timeoutMs?: number }) =>
       await runtime.compile.compileProject(args.projectId, args.rootFilePath, args.timeoutMs)
     )
   )

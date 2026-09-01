@@ -20,6 +20,26 @@ export interface RequestOptions {
   signal?: AbortSignal
 }
 
+/**
+ * Overleaf identifies rejected requests with a short lowercase code, for example
+ * `duplicate_file_name`. Only a value matching that shape is propagated, so no response
+ * content or free text can reach a caller through an error.
+ */
+const ERROR_CODE_PATTERN = /^[a-z][a-z0-9_]{0,63}$/u
+
+async function safeErrorCode(response: Response): Promise<string | undefined> {
+  if (!(response.headers.get('content-type') ?? '').includes('application/json')) {
+    return undefined
+  }
+  try {
+    const body: unknown = JSON.parse((await response.text()).slice(0, 2048))
+    const code = (body as { error?: unknown } | null)?.error
+    return typeof code === 'string' && ERROR_CODE_PATTERN.test(code) ? code : undefined
+  } catch {
+    return undefined
+  }
+}
+
 function responseSetCookies(headers: Headers): string[] {
   const enhanced = headers as Headers & { getSetCookie?: () => string[] }
   if (enhanced.getSetCookie) return enhanced.getSetCookie()
@@ -118,8 +138,13 @@ export class OverleafHttpClient {
       )
     }
     if (!response.ok) {
+      const overleafError = await safeErrorCode(response)
       throw new McpError('REMOTE_ERROR', `Overleaf returned HTTP ${response.status}.`, {
-        details: { status: response.status, path },
+        details: {
+          status: response.status,
+          path,
+          ...(overleafError === undefined ? {} : { overleafError }),
+        },
       })
     }
     return response

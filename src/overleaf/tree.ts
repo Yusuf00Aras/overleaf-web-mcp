@@ -22,8 +22,32 @@ export interface ProjectEntity {
   path: string
   type: EntityType
   parentFolderId: string
+  /**
+   * Git blob hash, present only on binary `file` entities.
+   *
+   * Overleaf stores no content hash for `doc` entities, so text documents are absent from
+   * any hash comparison and must be compared by reading their content. See `gitBlobHash`.
+   */
   hash?: string
 }
+
+/** A project tree plus the project-level settings that decide what Overleaf compiles. */
+export interface ProjectTree {
+  entities: ProjectEntity[]
+  /** Path of the project's configured root document, absent when Overleaf has none. */
+  rootDocPath?: string
+  /** TeX engine Overleaf compiles with, for example `pdflatex` or `xelatex`. */
+  compiler?: string
+  /** TeX Live image the project compiles against. */
+  imageName?: string
+  trackChangesActive: boolean
+  hashNote: string
+}
+
+export const TREE_HASH_NOTE =
+  'hash is a git blob hash, sha1("blob " + byteLength + "\\0" + content), identical to ' +
+  '`git hash-object <file>`. It is present only on binary file entities; doc entities have no hash.'
+
 
 export function normalizeProjectPath(path: string): string {
   const slashPath = path.replace(/\\/gu, '/')

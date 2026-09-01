@@ -128,7 +128,12 @@ export class OverleafRuntime implements OverleafToolRuntime {
           await connection.queue.run(() => resolveProjectPath(connection.getTree(), path, type))
         )
       },
-      config.compileTimeoutMs
+      config.compileTimeoutMs,
+      // Overleaf's own root document, so a compile that names no root matches the web UI.
+      async projectId => {
+        await connections.invalidate(projectId)
+        return await entities.getRootDocument(projectId)
+      }
     )
     const comments = new CommentsApi(http, connections, {
       maxUpdateChars: config.maxUpdateChars,

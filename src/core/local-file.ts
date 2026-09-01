@@ -1,0 +1,56 @@
+import { readFile } from 'node:fs/promises'
+
+import { McpError } from './errors.js'
+
+export interface TextContentSource {
+  content?: string | undefined
+  localPath?: string | undefined
+}
+
+function decodeUtf8(bytes: Uint8Array, localPath: string): string {
+  let decoded: string
+  try {
+    decoded = new TextDecoder('utf-8', { fatal: true }).decode(bytes)
+  } catch (error) {
+    throw new McpError(
+      'INVALID_ARGUMENT',
+      `${localPath} is not valid UTF-8 text. Use upload_file for binary content.`,
+      { cause: error }
+    )
+  }
+  // A leading BOM would otherwise be written into the document as a literal character.
+  return decoded.startsWith('﻿') ? decoded.slice(1) : decoded
+}
+
+/**
+ * Resolves the text a write should apply from exactly one of `content` or `localPath`.
+ *
+ * `localPath` exists so a whole-file replacement can stay revision-checked without routing
+ * the entire file through the MCP client's tool-argument budget. Server-side document and
+ * update limits are far larger than the practical argument budget, so file size alone is
+ * rarely the reason to choose one over the other.
+ */
+export async function resolveTextContent(source: TextContentSource): Promise<string> {
+  const hasContent = source.content !== undefined
+  const hasLocalPath = source.localPath !== undefined && source.localPath !== ''
+  if (hasContent && hasLocalPath) {
+    throw new McpError(
+      'INVALID_ARGUMENT',
+      'Provide either content or localPath, not both.'
+    )
+  }
+  if (!hasContent && !hasLocalPath) {
+    throw new McpError('INVALID_ARGUMENT', 'Provide either content or localPath.')
+  }
+  if (hasContent) return source.content!
+  const localPath = source.localPath!
+  let bytes: Uint8Array
+  try {
+    bytes = await readFile(localPath)
+  } catch (error) {
+    throw new McpError('NOT_FOUND', `Local file could not be read: ${localPath}`, {
+      cause: error,
+    })
+  }
+  return decodeUtf8(bytes, localPath)
+}
