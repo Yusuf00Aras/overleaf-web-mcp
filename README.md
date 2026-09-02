@@ -1,45 +1,51 @@
 <h1 align="center">Overleaf Web MCP</h1>
 
-<p align="center">Unofficial MCP server for browsing, tracked writing, organizing, compiling, reviewing, and monitoring version history in Overleaf projects through an authenticated web session.</p>
+<p align="center">Let Claude, Cursor, or any MCP client read, edit, compile, and review your Overleaf projects, signed in as you.</p>
 
 <p align="center">
+  <a href="https://www.npmjs.com/package/overleaf-web-mcp"><img alt="npm version" src="https://img.shields.io/npm/v/overleaf-web-mcp?color=1F6FEB"></a>
   <img alt="Node.js 20 or newer" src="https://img.shields.io/badge/Node.js-20%2B-339933?logo=nodedotjs&amp;logoColor=white">
-  <img alt="Strict TypeScript" src="https://img.shields.io/badge/TypeScript-strict-3178C6?logo=typescript&amp;logoColor=white">
   <img alt="19 MCP tools" src="https://img.shields.io/badge/MCP-19_tools-1F6FEB">
+  <a href="https://mhmdaskari.github.io/overleaf-web-mcp/"><img alt="Documentation" src="https://img.shields.io/badge/docs-mhmdaskari.github.io-0F766E"></a>
   <img alt="MIT license" src="https://img.shields.io/badge/License-MIT-0F766E">
 </p>
 
 <p align="center">
-  <img src="docs/assets/overleaf-web-mcp-workflow.webp" alt="MCP client connected through an authenticated web session to an Overleaf workspace for project files, LaTeX editing, compilation, and review replies" width="100%">
+  <img src="docs/assets/overleaf-web-mcp-workflow.webp" alt="An MCP client connected through an authenticated web session to an Overleaf workspace for project files, LaTeX editing, compilation, and review replies" width="100%">
 </p>
 
-| Connect | Organize | Write | Compile | Review | History |
-| :---: | :---: | :---: | :---: | :---: | :---: |
-| Dedicated Chrome-family profile and saved session | Browse projects and manage files, folders, uploads, and downloads | Revision-checked whole-file and section edits, optionally tracked | Build a selected root document and stop active compiles | List, anchor, reply, resolve, and reopen comments | Poll recent project updates with a version cursor |
+Overleaf Web MCP is an unofficial [Model Context Protocol](https://modelcontextprotocol.io) server. It signs in to Overleaf once through a browser window you control, then lets an AI assistant work on your projects the way you would in the web editor: browse files, make revision-checked edits, optionally as tracked changes, compile, and handle review comments. It uses the same browser-facing endpoints the Overleaf editor uses, so no Git integration or premium plan is needed for the core workflow.
 
-Overleaf Web MCP is an independent Node.js Model Context Protocol server for complete Overleaf project workflows. It uses browser-facing private REST endpoints plus Socket.IO/OT through a saved web session, without requiring Overleaf Git integration.
+## What you can say
+
+Once connected, talk to your assistant in plain language. It picks the tools.
+
+- "List my Overleaf projects and open the one called *CHEERSafe*."
+- "Rewrite the introduction of `main.tex` for a general audience, as a tracked change."
+- "Compile the paper and tell me whether it built."
+- "Which figures in `./figures` differ from what's in the project? Upload only those."
+- "Summarize the open review comments and reply to the one about Table 2."
 
 > [!CAUTION]
-> This is an unofficial client for unsupported private APIs. Overleaf may change these interfaces without notice, and automating `www.overleaf.com` may carry Terms-of-Service and account risk. Start with a disposable project, keep live-test volume low, and review Overleaf's current terms before using an important account.
+> This client uses Overleaf's private, browser-facing APIs, which Overleaf may change without notice. Automating `www.overleaf.com` may carry Terms-of-Service and account risk. Start with a disposable project and keep request volume low.
 
-## Quick start
+## Get started
 
-Requirements:
+You need Node.js 20 or newer, a Chrome-family browser (Chrome, Chromium, Brave, or Edge), and an Overleaf account.
 
-- Node.js 20 or newer
-- Google Chrome, Chromium, Brave, or Microsoft Edge for browser-assisted login
-- An Overleaf account with access to the target projects
-
-<details open>
-<summary><strong>Install from npm and connect an MCP client</strong></summary>
-
-Capture and verify a session:
+**1. Sign in once.** A dedicated browser window opens. Complete the normal Overleaf login, including SSO or two-factor. Only cookies for the Overleaf origin are saved, to a file only your user can read.
 
 ```bash
 npx overleaf-web-mcp login
 ```
 
-Configure an MCP client to start the package over stdio:
+**2. Connect your MCP client.** For Claude Code:
+
+```bash
+claude mcp add overleaf --scope user -- npx -y overleaf-web-mcp serve
+```
+
+For Claude Desktop, Cursor, VS Code, and other clients, add this to their MCP configuration:
 
 ```json
 {
@@ -52,372 +58,44 @@ Configure an MCP client to start the package over stdio:
 }
 ```
 
-The `serve` command is the default and can be omitted.
+**3. Restart the client** and ask it to check your Overleaf connection.
 
-</details>
+Client-by-client steps, self-hosted Overleaf, and troubleshooting, including the "failed to connect" you get when `node` is older than 20, are in the [installation guide](https://mhmdaskari.github.io/overleaf-web-mcp/install/).
 
-<details>
-<summary><strong>Run from a source checkout</strong></summary>
+## What it can do
 
-From the repository root:
+- **Browse and organize.** List projects, read the file tree with the configured root document and compiler, create folders and files, rename, move, upload, download, and delete with confirmation.
+- **Write safely.** Replace a whole document or a single section. Every edit is checked against the revision you read first, so a collaborator's concurrent change is reported instead of overwritten. Edits can be recorded as Overleaf tracked changes.
+- **Work by section.** Parse `\section` headings in a file, read one section, replace one section.
+- **Compile.** Build the project's configured root document, or any document you name, and stop a running compile.
+- **Review.** List comment threads with their locations, reply, add a comment anchored to exact text, and resolve or reopen threads.
+- **Follow history.** Poll recent project history with a version cursor to see who changed what.
 
-```bash
-npm install
-npm run build
-npm run login
-npm start
-```
+## How it keeps your project safe
 
-`npm run login` opens a dedicated browser window. Complete the normal Overleaf sign-in flow, including SSO or two-factor authentication when required. The window closes after authentication is detected, and the package saves only cookies applicable to the configured Overleaf origin.
+- Text edits require the revision from a prior read and fail with a conflict if the document changed underneath.
+- Tracked changes are opt-in and never silently downgraded to plain edits.
+- Deletes require the path to be confirmed. Downloads never overwrite a local file unless asked.
+- A write that times out is observed, never resubmitted, so nothing is applied twice.
+- Your session cookie stays on your machine in a file only you can read, and is never returned by any tool.
+- While a project is open, up to 90 seconds after the last call, you may appear online to collaborators.
 
-</details>
+## Documentation
 
-<details>
-<summary><strong>Connect to self-hosted Overleaf</strong></summary>
-
-Use the same origin for login and the MCP server:
-
-```bash
-OVERLEAF_BASE_URL=https://overleaf.example.org npx overleaf-web-mcp login
-```
-
-```json
-{
-  "mcpServers": {
-    "overleaf": {
-      "command": "npx",
-      "args": ["-y", "overleaf-web-mcp", "serve"],
-      "env": {
-        "OVERLEAF_BASE_URL": "https://overleaf.example.org"
-      }
-    }
-  }
-}
-```
-
-Private API and feature availability varies by Overleaf deployment and edition.
-
-</details>
-
-## Tools
-
-The server registers 19 tools. Expand only the areas you need.
-
-<details>
-<summary><strong>Account and connection — 2 tools</strong></summary>
-
-| Tool | Purpose |
+| Page | What it covers |
 | --- | --- |
-| `auth_status` | Verify the saved web session without exposing cookies |
-| `list_projects` | List projects available to the authenticated account |
-
-</details>
-
-<details open>
-<summary><strong>Projects, files, and tracked writing — 7 tools</strong></summary>
-
-| Tool | Purpose |
-| --- | --- |
-| `get_project_tree` | Return the file and folder tree with paths, entity IDs, hashes, and the project's root document, compiler, and image |
-| `read_file` | Read LF-normalized text and its opaque revision |
-| `write_file` | Replace text through a minimal verified OT update, from `content` or `localPath`; optionally use tracked changes |
-| `create_file` | Create a text document and optionally track non-empty initial content |
-| `manage_entity` | Create folders and rename, move, or confirmed-delete entities |
-| `upload_file` | Upload a local file to a project folder, replacing any entity already at that path |
-| `download_file` | Download a document or binary file to an explicit local path |
-
-`write_file` and non-empty `create_file` content accept `writeMode: "untracked" | "tracked"`. The default is `"untracked"` for backward compatibility. Tracked file creation requires non-empty initial content; creating the file entity itself remains a normal project-tree operation.
-
-**Choosing between `write_file` and `upload_file`:**
-
-| Need | Tool | Revision check | Tracked changes | Content source |
-| --- | --- | :---: | :---: | --- |
-| Small edit, or concurrent collaborators possible | `write_file` with `content` | yes | optional | inline |
-| Replace a large text file safely | `write_file` with `localPath` | yes | optional | disk |
-| Replace a binary, or push text when nobody else is editing | `upload_file` | no | never | disk |
-
-`write_file` accepts exactly one of `content` and `localPath`. Neither is limited by file size in practice: `DOC_TOO_LARGE` applies at the advertised `ol-maxDocLength` (2,097,152 UTF-16 code units by default) and `UPDATE_TOO_LARGE` at 7,340,032 serialized characters, so a 115 KB document uses about 5% of the document limit. The practical ceiling is the MCP client's tool-argument budget, which is what `localPath` avoids.
-
-`upload_file` upserts by path. When an entity already exists at the destination, Overleaf replaces its content in place and the `entity_id` does not change; otherwise a new entity is created. Overleaf, not the caller, decides whether the result is a text `doc` or a binary `file`, by extension and UTF-8 validity, so `upload_file` is a valid way to replace `.tex`, `.bib`, and `.bst` documents from disk. Replacing a `doc` this way is a blind write: it carries no revision check and is never recorded as a tracked change. Uploading text where a binary already exists, or the reverse, is rejected as `INVALID_ARGUMENT` with Overleaf's `duplicate_file_name` code rather than replacing the entity.
-
-`download_file` refuses to replace an existing local file unless `overwrite: true` is passed.
-
-</details>
-
-<details>
-<summary><strong>LaTeX sections — 3 tools</strong></summary>
-
-| Tool | Purpose |
-| --- | --- |
-| `get_sections` | Parse section headings in one LaTeX file |
-| `get_section_content` | Read one parsed section body |
-| `write_section` | Replace one section body with a revision-checked tracked or untracked write |
-
-Section parsing is single-file only. It recognizes starred headings and optional titles, ignores `%` comments and common verbatim-like environments, and never follows `\input` or `\include`.
-
-</details>
-
-<details>
-<summary><strong>Compilation — 2 tools</strong></summary>
-
-| Tool | Purpose |
-| --- | --- |
-| `compile_project` | Compile a project, defaulting to the root document configured in Overleaf |
-| `stop_compile` | Stop the active compile for a project |
-
-`compile_project.rootFilePath` is optional. Omitted, it compiles the root document configured in the project itself, which is the same document the web UI's Recompile button builds; `get_project_tree` reports that path as `rootDocPath`. Supplying `rootFilePath` overrides the root for that call only and does not change the project's settings. A project with no configured root and no `rootFilePath` returns `INVALID_ARGUMENT`.
-
-</details>
-
-<details>
-<summary><strong>Review and replies — 4 tools</strong></summary>
-
-| Tool | Purpose |
-| --- | --- |
-| `list_comments` | List and filter threads with lazy source-range resolution |
-| `reply_to_comment` | Reply to an existing thread with timeout deduplication |
-| `add_comment` | Create and verify a thread anchored to exact source text |
-| `set_comment_status` | Resolve or reopen a thread and verify the resulting state |
-
-`add_comment` uses 1-based line and UTF-16 column positions. The normalized live selection must exactly equal `expectedText`.
-
-</details>
-
-<details>
-<summary><strong>Version history — 1 tool</strong></summary>
-
-| Tool | Purpose |
-| --- | --- |
-| `monitor_project_history` | Poll one recent update window and return entries newer than an optional version cursor |
-
-This is stateless client-driven polling, not a background watcher. Results include `currentVersion`, `nextSinceVersion`, `hasEarlierHistory`, and `gapDetected`, plus normalized update groups with authors, paths, file-tree operations, labels, and origin metadata. Author emails and raw private response fields are omitted.
-
-</details>
-
-Key safety contracts:
-
-- Reads normalize CRLF and lone CR to LF and report `newline: "LF"`.
-- Revisions are opaque concurrency tokens containing project and document identity, OT protocol, version, and a SHA-256 content hash. Callers should retain but never construct them.
-- Content writes use minimal OT edits and are verified against a freshly joined document. Ambiguous writes are observed during a bounded recovery window and are never retried automatically.
-- Explicit tracked writes never silently fall back to untracked writes. They require an authenticated user ID, while `trackChangesActive` separately reports the project state observed at connection time.
-- `manage_entity` deletion requires `confirmPath` to exactly equal `path`.
-- `get_project_tree` reports `hash` as a **git blob hash**, `sha1("blob " + byteLength + "\0" + content)`, which is exactly what `git hash-object <file>` prints. Plain `sha1sum` never matches, because it omits the header. The hash is present only on binary `file` entities; Overleaf stores no content hash for `doc` entities, so text documents must be compared by reading their content.
-- `upload_file` replaces an existing entity in place with no revision check, and is annotated `destructiveHint: true`.
-
-## Common workflows
-
-<details>
-<summary><strong>Browse and organize a project</strong></summary>
-
-1. Call `list_projects`, then `get_project_tree`.
-2. Use `create_file` for text, or `manage_entity` to create folders and rename, move, or confirmed-delete entities.
-3. Use `upload_file` for local binaries and `download_file` to save documents or binaries to explicit local paths.
-
-</details>
-
-<details open>
-<summary><strong>Make a safe tracked or untracked edit</strong></summary>
-
-1. Call `read_file` and retain its `revision`.
-2. Modify the LF-normalized content.
-3. Call `write_file` with the unchanged revision, complete replacement content, and the desired mode:
-
-```json
-{
-  "projectId": "0123456789abcdef01234567",
-  "filePath": "main.tex",
-  "revision": "opaque-revision-from-read-file",
-  "content": "\\section{Introduction}\nRevised text.\n",
-  "writeMode": "tracked"
-}
-```
-
-4. If `REVISION_CONFLICT` is returned, read again and reconcile against the new content; never reuse the stale revision.
-
-`create_file` and `write_section` accept the same `writeMode` choice and return the resulting revision. A no-op write returns successfully but creates no tracked record.
-
-</details>
-
-<details open>
-<summary><strong>Poll recent version history</strong></summary>
-
-Call `monitor_project_history` without a cursor to establish the current window:
-
-```json
-{
-  "projectId": "0123456789abcdef01234567"
-}
-```
-
-On the next poll, pass the previous `nextSinceVersion` as `sinceVersion`. Only update groups whose `toVersion` is newer are returned. If `gapDetected` is true, the cursor predates the single returned window; the tool deliberately does not page backward or calculate diffs.
-
-</details>
-
-<details>
-<summary><strong>Upload only the binaries that actually changed</strong></summary>
-
-`get_project_tree` reports a git blob hash for every binary file entity, so a local folder can be compared against a project without downloading anything:
-
-```bash
-# For each local figure, compare git's own hash against the project tree's hash field.
-for file in figures/*.png; do
-  printf '%s %s\n' "$(git hash-object "$file")" "$file"
-done
-```
-
-Match each hash against the `hash` of the entity at the same path in `get_project_tree`, then call `upload_file` only for the paths that differ or are missing. Text documents have no `hash` and are excluded from this comparison; compare those with `read_file` instead.
-
-</details>
-
-<details>
-<summary><strong>Compile a project</strong></summary>
-
-1. Call `compile_project`, with no `rootFilePath` to build the project's configured root document.
-2. Use `stop_compile` to stop an active compile.
-
-</details>
-
-<details>
-<summary><strong>Review and reply to comments</strong></summary>
-
-1. Call `list_comments`; it defaults to open threads and accepts file, status, and author filters.
-2. Use `reply_to_comment` for an existing thread.
-3. To anchor a new thread, call `read_file`, select an exact range, then pass its revision, UTF-16 positions, `expectedText`, and message to `add_comment`.
-4. Pass the latest revision to `set_comment_status` when resolving or reopening an anchored thread.
-
-All review-panel threads include available author metadata. Overleaf does not expose a reliable separate reviewer classification. Review comments and tracked changes require an Overleaf deployment and account entitlement that supports them.
-
-</details>
-
-## Configuration, authentication, and security
-
-The cookie jar is local, never returned by a tool, and protected with restrictive permissions where the filesystem supports them. The server reserves stdout for MCP protocol messages and does not log cookies, filenames, document content, diffs, quoted context, or review-message bodies.
-
-<details>
-<summary><strong>Configuration reference</strong></summary>
-
-| Variable | Default | Purpose |
-| --- | ---: | --- |
-| `OVERLEAF_COOKIE_JAR_FILE` | Platform configuration directory | Saved-session path override |
-| `OVERLEAF_BASE_URL` | `https://www.overleaf.com` | Target Overleaf origin |
-| `OVERLEAF_BROWSER_PATH` | Auto-detected | Chrome-family executable used by `login` |
-| `OVERLEAF_BROWSER_PROFILE_DIR` | Platform configuration directory | Dedicated login profile |
-| `OVERLEAF_LOGIN_TIMEOUT_MS` | `300000` | Browser sign-in deadline, capped at 15 minutes |
-| `OVERLEAF_PROTOCOL_VERSIONS` | `2` | Comma-separated accepted collaboration protocol versions |
-| `OVERLEAF_MAX_DOC_LENGTH` | `2097152` | Fallback maximum UTF-16 document length |
-| `OVERLEAF_MAX_UPDATE_CHARS` | `7340032` | Conservative serialized OT update limit |
-| `OVERLEAF_SOCKET_CACHE_SIZE` | `2` | Maximum cached project sockets |
-| `OVERLEAF_SOCKET_IDLE_TTL_MS` | `90000` | Idle project-socket lifetime |
-| `OVERLEAF_REQUEST_TIMEOUT_MS` | `30000` | REST and collaboration-call timeout |
-| `OVERLEAF_APPLY_TIMEOUT_MS` | `30000` | OT acknowledgement and application timeout |
-| `OVERLEAF_RECOVERY_TIMEOUT_MS` | `30000` | Ambiguous-mutation observation window |
-| `OVERLEAF_COMPILE_TIMEOUT_MS` | `120000` | Default compile wait, capped at 15 minutes |
-
-An advertised `ol-maxDocLength` value takes precedence over the fallback. Target content at or above the limit returns `DOC_TOO_LARGE`; an oversized serialized update returns `UPDATE_TOO_LARGE` and must be split into smaller independently revisioned writes.
-
-`compile_project.timeoutMs` accepts 1 second through 15 minutes. It changes only how long the MCP call waits, not the account's server-side compile allowance.
-
-</details>
-
-<details>
-<summary><strong>Authentication storage and refresh behavior</strong></summary>
-
-The login command uses a separate browser profile and does not inspect the normal Chrome profile. Session files are stored under `overleaf-web-mcp` in the platform configuration directory:
-
-- Linux: `${XDG_CONFIG_HOME:-~/.config}/overleaf-web-mcp`
-- macOS: `~/Library/Application Support/overleaf-web-mcp`
-- Windows: `%APPDATA%\overleaf-web-mcp`
-
-Only cookies applicable to `OVERLEAF_BASE_URL` are saved. On POSIX systems, the configuration directory uses mode 0700 and the cookie jar mode 0600; group- or world-readable jars are rejected. Filesystems without meaningful POSIX modes continue with a `permissionsUnchecked` warning.
-
-Cookie refreshes are merged under an advisory lock and written through a protected temporary file followed by atomic replacement. If the session expires, run `npx overleaf-web-mcp login` again.
-
-</details>
-
-## Technical details and ecosystem
-
-<details>
-<summary><strong>Connection model and related projects</strong></summary>
-
-The entries below are representative rather than exhaustive, and their capabilities may change over time.
-
-| Implementation | Connection model | Focus |
-| --- | --- | --- |
-| **This project** | Browser-assisted saved session plus private REST and Socket.IO/OT | Project/file management, tracked writing, compilation, review/replies, and recent history monitoring |
-| [`@netique/overleaf-mcp`](https://github.com/netique/overleaf-mcp) | Browser session plus private REST and Socket.IO/OT | A close web/OT peer with review comments and tracked-change workflows |
-| [`overleaf-mcp-rt`](https://github.com/DanielHou315/overleaf-mcp-rt) | Session authentication plus native OT | Real-time file and compile tooling focused on self-hosted Community Edition |
-| Git-based projects: [`OverleafMCP`](https://github.com/mjyoo2/OverleafMCP), [`overleaf-mcp-server`](https://github.com/YounesBensafia/overleaf-mcp-server), and [`vibeTeX`](https://github.com/oscardvs/vibetex) | Primarily the Overleaf Git bridge | Git-backed synchronization, editing, and history workflows |
-
-Review-range investigation was informed by [`Overleaf Comment Exporter`](https://github.com/salokr/overleaf-comment-exporter). Real-time protocol behavior was informed by [`Overleaf Workshop`](https://github.com/iamhyc/Overleaf-Workshop).
-
-</details>
-
-<details>
-<summary><strong>Protocol and reliability notes</strong></summary>
-
-- The collaboration adapter implements the Socket.IO 0.9 wire format used by the targeted Overleaf client family. Project bootstrap rejects unsupported protocol versions.
-- ShareJS text OT and history-OT are normalized behind one document interface. Tracked ShareJS writes carry the authenticated author in update metadata; tracked history-OT writes carry author and timestamp metadata on inserted and retained-deletion components.
-- Visible history-OT offsets account for tracked deletions retained in the raw snapshot.
-- At most two project sockets are cached by default. Active sockets are never evicted, and idle sockets disconnect after 90 seconds. While a project socket remains open, the account may appear online to collaborators.
-- All document sessions and tree mutations share a project-wide FIFO because Overleaf's join/leave epoch is socket-wide. Documents are joined for one queued operation and then left.
-- A write succeeds only after acknowledgement, matching `otUpdateApplied`, leave/rejoin, and content-hash verification.
-- If a write times out, the intended hash means success, the unchanged original revision means timeout, and any third observable state means conflict. The write is never submitted again automatically.
-- A comment is created as a REST thread and then attached through OT. Timed-out attachment recovery checks the new thread ID and exact range; orphan cleanup occurs only after the unchanged document proves attachment did not apply.
-- A timed-out reply is accepted only when current author, exact normalized content, and the request-time window identify the refreshed message.
-- ShareJS comment status uses the dedicated REST action. History-OT comment status is part of the document operation and snapshot.
-- History monitoring reads one 25-group update window, strips email fields, and keeps no cursor or background state on the server.
-
-Protocol fixtures under `test/fixtures/protocol` are sanitized: cookies, user data, project and document IDs, and document content are removed.
-
-</details>
-
-<details>
-<summary><strong>Review-thread location behavior</strong></summary>
-
-Thread messages, authors, and resolution state come from `/project/:id/threads`. When the deployment exposes `/project/:id/ranges`, that project-wide index identifies the documents containing filtered threads. Only those documents are joined to calculate line and column positions and quoted context.
-
-If a usable project-wide range index is unavailable, a project-wide call returns threads with `positionsUnavailable: true`; it never scans every document silently. Supplying `filePath` joins only that document and resolves its ShareJS ranges or history-OT comment state. Threads without a document range are returned as `unlocated`.
-
-The discussion record and source range are separate Overleaf objects. The thread endpoint provides messages, while live document state provides attachment and status metadata.
-
-</details>
-
-## Development
-
-<details>
-<summary><strong>Local verification and gated live tests</strong></summary>
-
-```bash
-npm run check
-npm run lint
-npm test
-npm run build
-npm pack --dry-run
-```
-
-Every push and pull request runs the same checks in CI; releases run them again before publishing.
-
-Unit and deterministic integration tests cover revision identity, Unicode positions, section parsing, tracked and untracked OT operations, history normalization, update limits, queue/cache behavior, Socket.IO frames, timeout recovery, comment attachment, file-tree events, and MCP registration.
-
-Live tests are disabled by default and must target a disposable project:
-
-```bash
-RUN_OVERLEAF_LIVE_TESTS=1 \
-OVERLEAF_LIVE_TEST_PROJECT_ID=0123456789abcdef01234567 \
-npm test -- test/live
-```
-
-Add `RUN_OVERLEAF_LIVE_REVIEW_TESTS=1` for review reads, `RUN_OVERLEAF_LIVE_TRACKED_WRITE_TESTS=1` for a disposable tracked file create/delete, or `RUN_OVERLEAF_LIVE_HISTORY_TESTS=1` for read-only history normalization. Feature availability depends on the deployment and account. Keep request volume low and treat cleanup failures as test failures.
-
-</details>
-
-<details>
-<summary><strong>Current exclusions</strong></summary>
-
-Git workflows, collaborator/account administration, billing, chat, background history watching, backward history pagination, version diffs and restoration, label mutation, and editing or deleting individual comment messages are outside the current release. Private API compatibility is version-specific and maintained on a best-effort basis.
-
-</details>
+| [Install](https://mhmdaskari.github.io/overleaf-web-mcp/install/) | Claude Code, Claude Desktop, Cursor, VS Code, self-hosted Overleaf, troubleshooting |
+| [Using it](https://mhmdaskari.github.io/overleaf-web-mcp/using/) | Example prompts and what happens underneath |
+| [Tool reference](https://mhmdaskari.github.io/overleaf-web-mcp/tools/) | All 19 tools with parameters and results |
+| [Safety model](https://mhmdaskari.github.io/overleaf-web-mcp/safety/) | Revisions, tracked changes, confirmations, error codes |
+| [Configuration](https://mhmdaskari.github.io/overleaf-web-mcp/configuration/) | Environment variables and where the session is stored |
+| [Internals](https://mhmdaskari.github.io/overleaf-web-mcp/internals/) | Protocol notes, reliability guarantees, related projects |
+| [Roadmap](https://mhmdaskari.github.io/overleaf-web-mcp/roadmap/) and [Changelog](https://mhmdaskari.github.io/overleaf-web-mcp/changelog/) | Where this is going and what changed |
+
+## For AI agents
+
+The server sends usage instructions to the MCP client when it connects, and every tool description is self-contained, so an assistant does not need this README to use it correctly. Coding agents contributing to the repository should read [AGENTS.md](AGENTS.md).
 
 ## License
 
-Licensed under the [MIT License](LICENSE).
+[MIT](LICENSE).

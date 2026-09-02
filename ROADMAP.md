@@ -18,7 +18,7 @@ Each stage assumes the previous one shipped. Tool names follow the existing snak
 | v0.5.0 | Multi-file documents | 1 | Section tools stop at `\input` boundaries |
 | v1.0.0 | Hardening | 0 | Failure modes that are not yet legible |
 
-**v0.1.3 shipped on 1 September 2026.** See the [changelog](CHANGELOG.md) for what landed.
+**v0.1.3 shipped on 1 September 2026**, followed the same day by **v0.1.4**, a documentation release: a human-first README, the documentation site at <https://mhmdaskari.github.io/overleaf-web-mcp/>, and usage instructions sent to MCP clients at connect time. See the [changelog](https://github.com/mhmdaskari/overleaf-web-mcp/blob/main/CHANGELOG.md) for what landed.
 
 After v1.0.0 the server would register 32 tools (19 today). Every tool description costs the MCP
 client context on every turn, so the lifecycle stage below deliberately reuses the

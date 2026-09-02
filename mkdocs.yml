@@ -1,0 +1,75 @@
+site_name: Overleaf Web MCP
+site_description: Unofficial MCP server that lets an AI assistant browse, edit, compile, and review your Overleaf projects through your own web session.
+site_url: https://mhmdaskari.github.io/overleaf-web-mcp/
+repo_url: https://github.com/mhmdaskari/overleaf-web-mcp
+repo_name: mhmdaskari/overleaf-web-mcp
+edit_uri: edit/main/docs/
+copyright: MIT License. Unofficial and not affiliated with Overleaf.
+
+theme:
+  name: material
+  language: en
+  icon:
+    repo: fontawesome/brands/github
+  features:
+    - navigation.tracking
+    - navigation.top
+    - navigation.footer
+    - toc.follow
+    - search.suggest
+    - search.highlight
+    - content.code.copy
+    - content.action.edit
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: teal
+      accent: teal
+      toggle:
+        icon: material/weather-night
+        name: Switch to dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: teal
+      accent: teal
+      toggle:
+        icon: material/weather-sunny
+        name: Switch to light mode
+
+nav:
+  - Overview: index.md
+  - Install: install.md
+  - Using it: using.md
+  - Tool reference: tools.md
+  - Safety model: safety.md
+  - Configuration: configuration.md
+  - Internals: internals.md
+  - Development: development.md
+  - Roadmap: roadmap.md
+  - Changelog: changelog.md
+
+markdown_extensions:
+  - admonition
+  - attr_list
+  - md_in_html
+  - tables
+  - toc:
+      permalink: true
+  - pymdownx.details
+  - pymdownx.highlight:
+      anchor_linenums: true
+  - pymdownx.inlinehilite
+  - pymdownx.superfences
+  - pymdownx.tabbed:
+      alternate_style: true
+  - pymdownx.snippets:
+      base_path:
+        - .
+      check_paths: true
+
+extra:
+  social:
+    - icon: fontawesome/brands/npm
+      link: https://www.npmjs.com/package/overleaf-web-mcp
+    - icon: fontawesome/brands/github
+      link: https://github.com/mhmdaskari/overleaf-web-mcp

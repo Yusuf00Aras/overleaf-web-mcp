@@ -51,10 +51,11 @@ describe('MCP tool registration', () => {
     expect(registered.get('write_section')?.config.description).toMatch(/single file/i)
   })
 
-  test('documents the tool count in the README so the badge cannot drift', async () => {
+  test('documents the tool count in the README badge and the docs reference so neither can drift', async () => {
     const readme = await readFile(new URL('../../README.md', import.meta.url), 'utf8')
+    const reference = await readFile(new URL('../../docs/tools.md', import.meta.url), 'utf8')
     const badge = /alt="(\d+) MCP tools"/u.exec(readme)?.[1]
-    const prose = /The server registers (\d+) tools/u.exec(readme)?.[1]
+    const prose = /The server registers (\d+) tools/u.exec(reference)?.[1]
 
     expect(badge).toBe(String(TOOL_NAMES.length))
     expect(prose).toBe(String(TOOL_NAMES.length))

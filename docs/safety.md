@@ -1,0 +1,106 @@
+# Safety model
+
+What the server guarantees, what it refuses to do, and how failures are reported. This is the
+contract an assistant is held to, written for the person whose manuscript is on the other side.
+
+## Guarantees in plain language
+
+**Nothing is written blind.** Every text edit (`write_file`, `write_section`, and the content of
+`create_file`) requires the `revision` returned by a prior read of that document. If the document
+changed since that read, even by one character, the write fails with `REVISION_CONFLICT` and
+nothing is applied. The assistant must read again and reconcile. It may never construct a
+revision or reuse a stale one.
+
+**Edits are minimal and verified.** You send the complete replacement text; the server computes
+the smallest operational-transformation edit that produces it, submits that, then rejoins the
+document and compares a content hash against the intended result before returning the new
+revision. An acknowledgement alone is never treated as success.
+
+**Timeouts are observed, never retried.** If a write times out, the server watches the live
+document for a bounded window. Seeing the intended content means the write applied. Seeing the
+original revision through the whole window means it did not. Seeing anything else is reported as
+a conflict. In no case is the write submitted again, so a slow network can never apply an edit
+twice.
+
+**Tracked changes are honest.** `writeMode: "tracked"` records the edit as Overleaf tracked
+changes for review. If tracking is not possible, for example because the session has no
+authenticated user id, the call fails rather than quietly writing an untracked edit.
+
+**Destructive actions need a second value.** Deleting an entity with `manage_entity` requires
+`confirmPath` to equal `path` exactly. `download_file` refuses to replace an existing local file
+unless `overwrite` is `true`. `upload_file` replaces whatever exists at the destination path, so
+it is annotated as destructive and its description says so.
+
+**Your session stays yours.** Cookies are saved in a file only your user can read, are never
+returned by any tool, and are never logged. The server logs no document content, diffs,
+filenames, quoted context, or review-message bodies, and reserves stdout for protocol frames.
+
+**Presence is disclosed.** While the server holds a project connection open, up to 90 seconds
+after the last call by default, the account may appear online to collaborators. `auth_status`
+repeats this notice.
+
+## The exact contracts
+
+- Reads normalize CRLF and lone CR to LF and report `newline: "LF"`.
+- Revisions are opaque concurrency tokens containing project and document identity, OT protocol,
+  version, and a SHA-256 content hash. Retain them; never construct them.
+- Content writes use minimal OT edits and are verified against a freshly joined document.
+  Ambiguous writes are observed during a bounded recovery window and are never retried
+  automatically.
+- Explicit tracked writes never fall back to untracked writes. They require an authenticated user
+  id, while `trackChangesActive` separately reports the project state observed at connection time.
+- `manage_entity` deletion requires `confirmPath` to exactly equal `path`.
+- `get_project_tree` reports `hash` as a git blob hash, `sha1("blob " + byteLength + "\0" +
+  content)`, which is exactly what `git hash-object <file>` prints. Plain `sha1sum` never matches.
+  The hash is present only on binary `file` entities; Overleaf stores no content hash for `doc`
+  entities, so text documents must be compared by reading them.
+- `upload_file` replaces an existing entity in place with no revision check, never as a tracked
+  change, and is annotated `destructiveHint: true`.
+- `download_file` fails with `INVALID_ARGUMENT` when the local path exists and `overwrite` is not
+  `true`.
+- Compiles use the account's compile allowance. `compile_project.timeoutMs` bounds only how long
+  the call waits.
+
+## Error codes
+
+Every failure is returned as JSON with `code`, `message`, `retryable`, and optional `details`.
+`retryable` is advisory; even when it is `true`, the server itself never retries a write.
+
+| Code | Meaning | What to do |
+| --- | --- | --- |
+| `AUTH_EXPIRED` | No saved session, or Overleaf no longer accepts it. | Run `npx overleaf-web-mcp login` again. Do not retry the call. |
+| `PERMISSION_DENIED` | Overleaf refused the operation for this account (HTTP 403). | Check the project's access level; read-only collaborators cannot write. |
+| `NOT_FOUND` | The project, path, or Overleaf resource does not exist (HTTP 404). | Re-read the tree; the entity may have been renamed or removed. |
+| `REVISION_CONFLICT` | The document changed since the revision you hold, or the verified result differs from the intent. `details.liveRevision` carries the current revision. | Read again, reconcile, and write with the new revision. |
+| `PROTOCOL_UNSUPPORTED` | The deployment speaks a collaboration protocol version this release does not, or the document's OT protocol changed between read and write, or a tracked write has no user id. | Read again. If the protocol version is the issue, see `OVERLEAF_PROTOCOL_VERSIONS`. |
+| `DOC_TOO_LARGE` | The resulting document would reach the advertised maximum length. | Split the content across documents. |
+| `UPDATE_TOO_LARGE` | The serialized edit exceeds the configured update limit, or Overleaf answered HTTP 413. | Split the change into smaller writes, each with a fresh revision. |
+| `TIMEOUT` | A request or OT application timed out. For writes, `details.outcome: "not_applied"` means the original revision stayed live throughout the recovery window. | Safe to read and try again with a fresh revision. |
+| `OUTCOME_UNKNOWN` | A write timed out and the live document could not be observed afterwards. | Read the document before doing anything else; do not assume either outcome. |
+| `COMPILE_FAILED` | Overleaf finished the compile with a status other than success. `details.result.status` carries the status. | Inspect the status; fix LaTeX errors or wait if the account was rate-limited. |
+| `PARTIAL_CLEANUP` | A multi-step operation applied some steps and could not undo them all. `details` says what remains. | Inspect the project and finish the cleanup by hand. |
+| `INVALID_ARGUMENT` | The call was malformed, a confirmation value did not match, a path was invalid, or Overleaf rejected an upload name. `details.overleafError` may carry Overleaf's short reason code. | Fix the arguments. |
+| `REMOTE_ERROR` | Anything else Overleaf returned or a network failure. `details.status` carries the HTTP status when there is one. | Retry once if `retryable` is `true`; otherwise report it. |
+
+## Limits
+
+| Limit | Default | Source |
+| --- | ---: | --- |
+| Document length | 2,097,152 UTF-16 code units | `ol-maxDocLength` advertised by Overleaf, else `OVERLEAF_MAX_DOC_LENGTH` |
+| Serialized update | 7,340,032 characters | `OVERLEAF_MAX_UPDATE_CHARS` |
+| Compile wait | 120 seconds, maximum 15 minutes | `OVERLEAF_COMPILE_TIMEOUT_MS`, `compile_project.timeoutMs` |
+| Project sockets cached | 2, idle for 90 seconds | `OVERLEAF_SOCKET_CACHE_SIZE`, `OVERLEAF_SOCKET_IDLE_TTL_MS` |
+
+The practical ceiling on `write_file` with inline `content` is not any of these but the MCP
+client's tool-argument budget. `localPath` exists for that reason.
+
+## What this does not protect against
+
+- **Terms of Service.** This is an unofficial client of private APIs. Overleaf may change them
+  without notice or object to automation. Use a disposable project first, keep volume low, and
+  read Overleaf's current terms.
+- **Blind uploads.** `upload_file` and, through it, any bulk replacement of text documents
+  overwrite a collaborator's concurrent edits. Use `write_file` for text when others may be
+  editing.
+- **A compromised machine.** The cookie jar is a credential. Anyone who can read your user's files
+  can act as you on Overleaf until the session expires.
