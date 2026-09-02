@@ -3,6 +3,7 @@ import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js'
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { describe, expect, test, vi } from 'vitest'
 
+import { SERVER_INSTRUCTIONS } from '../src/mcp/instructions.js'
 import { TOOL_NAMES } from '../src/mcp/tools.js'
 import { createMcpServer } from '../src/server.js'
 
@@ -34,6 +35,14 @@ function fakeRuntime() {
   }
 }
 
+async function connectedPair() {
+  const server = createMcpServer(fakeRuntime())
+  const client = new Client({ name: 'smoke-client', version: '1.0.0' })
+  const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair()
+  await Promise.all([server.connect(serverTransport), client.connect(clientTransport)])
+  return { server, client }
+}
+
 describe('MCP server', () => {
   test('constructs the SDK server with the full tool surface', () => {
     const server = createMcpServer(fakeRuntime())
@@ -45,17 +54,25 @@ describe('MCP server', () => {
   })
 
   test('lists all tools over an MCP transport handshake', async () => {
-    const server = createMcpServer(fakeRuntime())
-    const client = new Client({ name: 'smoke-client', version: '1.0.0' })
-    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair()
-
-    await Promise.all([
-      server.connect(serverTransport),
-      client.connect(clientTransport),
-    ])
+    const { server, client } = await connectedPair()
     const result = await client.listTools()
 
     expect(result.tools.map(tool => tool.name)).toEqual(TOOL_NAMES)
+    await client.close()
+    await server.close()
+  })
+
+  test('sends bounded usage instructions in the initialize response', async () => {
+    const { server, client } = await connectedPair()
+    const instructions = client.getInstructions()
+
+    expect(instructions).toBe(SERVER_INSTRUCTIONS)
+    // The contract an assistant must know without reading the docs.
+    for (const term of ['read_file', 'revision', 'REVISION_CONFLICT', 'upload_file', 'confirmPath', 'AUTH_EXPIRED']) {
+      expect(instructions).toContain(term)
+    }
+    // Instructions ride along on every session; keep them short enough to be read.
+    expect(instructions!.split(/\s+/u).length).toBeLessThan(450)
     await client.close()
     await server.close()
   })
