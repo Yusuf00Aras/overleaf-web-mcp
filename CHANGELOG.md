@@ -4,10 +4,38 @@ All notable changes to this project are documented here. This project follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html). Until 1.0.0, tool schemas and
 result shapes may change in a minor or patch release; each such change is listed below.
 
+## [0.1.4] - 2026-09-01
+
+Documentation restructure and runtime instructions for MCP clients. No tool was added, removed,
+or changed in schema or result shape; the server still registers 19 tools.
+
+### Added
+
+- **Usage instructions in the MCP initialize response.** The server now sets the MCP
+  `instructions` field, so clients that surface it (Claude Code among them) give the model the
+  safety contract, read before write, revision handling, `upload_file` semantics, confirmations,
+  compile allowance, and what to do on `AUTH_EXPIRED`, without anyone pasting the README into a
+  prompt. Exported as `SERVER_INSTRUCTIONS`; a test keeps it under 450 words.
+- **Documentation site** at <https://mhmdaskari.github.io/overleaf-web-mcp/>, built with MkDocs
+  Material from `docs/` and deployed by GitHub Actions on every push to `main`. It holds the full
+  tool reference, safety model, configuration, internals, development guide, roadmap, and this
+  changelog.
+- **`AGENTS.md`** for coding agents contributing to the repository, with the rules that must keep
+  holding, test expectations, and the release steps. `CLAUDE.md` imports it for Claude Code.
+
+### Changed
+
+- **README rewritten for people.** It now leads with what you can say to an assistant, a
+  three-step install, what the server can do, and how it keeps a project safe, in plain language,
+  and links to the site for everything else. The 19-row tool tables, the configuration table, the
+  protocol notes, and the step-by-step workflows moved to the documentation site.
+- The tool-count test now checks the README badge and the docs tool reference instead of two
+  places in the README.
+
 ## [0.1.3] - 2026-09-01
 
 Documentation, metadata, and small additive fixes. No tools were added or removed; the server
-still registers 19 tools. Planned in [ROADMAP.md](ROADMAP.md).
+still registers 19 tools. Planned in [ROADMAP.md](https://github.com/mhmdaskari/overleaf-web-mcp/blob/main/ROADMAP.md).
 
 ### Changed
 
@@ -45,7 +73,7 @@ still registers 19 tools. Planned in [ROADMAP.md](ROADMAP.md).
   error.
 - **Continuous integration on pushes and pull requests** running type-check, lint, tests,
   build, and the packed-file check. Previously these ran only when a release was published.
-- **[ROADMAP.md](ROADMAP.md)** describing the planned path from 0.1.3 to 1.0.0.
+- **[ROADMAP.md](https://github.com/mhmdaskari/overleaf-web-mcp/blob/main/ROADMAP.md)** describing the planned path from 0.1.3 to 1.0.0.
 - **This changelog.**
 
 ### Documentation
@@ -77,6 +105,7 @@ still registers 19 tools. Planned in [ROADMAP.md](ROADMAP.md).
 - First release: browser-assisted session capture, project and file management, revision-checked
   and section-level writing, compilation, and review comments.
 
+[0.1.4]: https://github.com/mhmdaskari/overleaf-web-mcp/releases/tag/v0.1.4
 [0.1.3]: https://github.com/mhmdaskari/overleaf-web-mcp/releases/tag/v0.1.3
 [0.1.2]: https://github.com/mhmdaskari/overleaf-web-mcp/releases/tag/v0.1.2
 [0.1.1]: https://github.com/mhmdaskari/overleaf-web-mcp/releases/tag/v0.1.1
