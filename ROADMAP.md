@@ -227,7 +227,7 @@ update_project_settings({ projectId: string, rootFilePath?: string,
 
 - From an account with zero projects, an agent reaches a compiled project using only MCP tools, with **no web-UI step**, and never has to guess which file is the root.
 - After `update_project_settings({ rootFilePath })`, reopening the project in the web UI shows the chosen file as root and "Recompile" builds it.
-- `list_projects({ query: "CHEERSafe" })` returns only matching projects; the default call returns at most 50 and hides archived and trashed projects.
+- `list_projects({ query: "Thesis" })` returns only matching projects; the default call returns at most 50 and hides archived and trashed projects.
 - `manage_project` with a wrong `confirmName` returns `CONFIRMATION_MISMATCH` and changes nothing; `delete` on a project that is not trashed returns `INVALID_ARGUMENT` and changes nothing.
 
 ---
@@ -475,7 +475,7 @@ Keep the honesty pattern: update the "never follows `\input`" sentence to say ex
 ### Acceptance
 
 - Every error surfaced to a client carries one of the codes above; a fuzzed or mutated API fixture produces `API_SHAPE_CHANGED`, not a stack trace.
-- `list_projects` over a 127-project account answers "the ten most recently updated" and "anything containing CHEERSafe" in one call each; no uncapped arrays remain.
+- `list_projects` over a 127-project account answers "the ten most recently updated" and "anything containing Thesis" in one call each; no uncapped arrays remain.
 - CI runs the full smoke path green against Community Edition on every pull request.
 - `tools/list` shows annotations on every tool and `outputSchema` on every tool that returns structured data.
 
