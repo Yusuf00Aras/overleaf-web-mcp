@@ -4,7 +4,69 @@ All notable changes to this project are documented here. This project follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html). Until 1.0.0, tool schemas and
 result shapes may change in a minor or patch release; each such change is listed below.
 
-## [0.1.4] - 2026-09-01
+## [0.2.0] - 2026-09-10
+
+Project lifecycle. Until now every tool took an existing `projectId`, so an agent could not create,
+rename, trash, or configure a project without a person doing it in the web UI. The server now
+registers 24 tools. Planned in [ROADMAP.md](https://github.com/mhmdaskari/overleaf-web-mcp/blob/main/ROADMAP.md),
+which this release also merges with a second draft into one document with per-stage tasks and
+acceptance criteria.
+
+### Added
+
+- **`create_project`**, **`clone_project`**, and **`import_project_zip`** create a project from a
+  name, an existing project, or a local `.zip` archive, and return `projectId`, `name`, `url`, and
+  (for `create_project`) `rootDocPath`. A blank project still holds Overleaf's stub `main.tex`;
+  the descriptions say so and point at `update_project_settings`.
+- **`manage_project`** renames, trashes, restores, archives, unarchives, or permanently deletes a
+  project. `trash`, `archive`, and `delete` require `confirmName` to equal the current project
+  name exactly, and `delete` only succeeds on a project that is already trashed, following
+  Overleaf's own trash-first model.
+- **`update_project_settings`** persists the root document (`rootFilePath`, which must resolve to
+  a text document), `compiler`, TeX Live `imageName`, or `spellCheckLanguage` in the project, so
+  the web editor's Recompile follows the change. It returns the settings as re-read from a fresh
+  project join.
+- **`list_projects` filters**: `query` (case-insensitive substring), `includeArchived`,
+  `includeTrashed` (both default `false`), `limit` (default 50, at most 200), and `sort`
+  (`lastUpdated`, newest first, or `name`).
+- **`RATE_LIMITED`** error code for HTTP 429, retryable, with `details.retryAfterMs` parsed from
+  `Retry-After` when Overleaf sends it. Zip import and project creation are the routes Overleaf
+  throttles first.
+- **`CONFIRMATION_MISMATCH`** error code for every confirm-by-value failure (`confirmPath`,
+  `confirmName`). Nothing is changed when it is returned.
+- **`outputSchema` and `structuredContent`** on the five new tools and on `list_projects`. The
+  JSON text block is still returned for clients that do not read structured results.
+- **`get_project_tree` reports `spellCheckLanguage`** alongside `compiler` and `imageName`.
+- **[`docs/private-api.md`](https://mhmdaskari.github.io/overleaf-web-mcp/private-api/)**
+  catalogues every Overleaf route the server calls, the fields it sends and reads, and the error
+  code each failure maps to.
+- A gated live test (`RUN_OVERLEAF_LIVE_LIFECYCLE_TESTS=1`) that creates a disposable project,
+  sets its root document, compiles it, and trashes it. It never deletes permanently.
+
+### Changed
+
+- **`list_projects` returns an object instead of a bare array**: `{ projects, totalMatched,
+  totalProjects }`, where each project carries `id`, `name`, `accessLevel`, `lastUpdated`,
+  `archived`, and `trashed`. Archived and trashed projects are hidden by default, and the default
+  order is newest first rather than by name. The list now comes from the dashboard endpoint
+  (`POST /api/project`) instead of the legacy `GET /user/projects`, and its shape is validated;
+  an unexpected shape surfaces as `PROTOCOL_UNSUPPORTED`.
+- **`auth_status.projectCount`** counts every project the account can access, archived and
+  trashed included, through the same endpoint.
+- **`manage_entity` with a wrong `confirmPath` now fails with `CONFIRMATION_MISMATCH`** instead of
+  `INVALID_ARGUMENT`. The message is unchanged.
+- The initialize instructions gain a paragraph on project lifecycle and `confirmName`; they
+  remain under the 450-word bound the test enforces.
+
+### Documentation
+
+- A "from nothing to a compiled PDF" walkthrough in the usage guide that needs no web-UI step.
+- The README and site list the lifecycle tools, and the related-projects section states that
+  web-session peers also offer tracked changes while Git-bridge servers need a paid plan and
+  bypass tracked changes.
+- The roadmap is one merged document with a Stage 0 verification checklist, conventions, tool
+  signatures, tasks, acceptance criteria, an error taxonomy, and a competitive table.
+
 
 Documentation restructure and runtime instructions for MCP clients. No tool was added, removed,
 or changed in schema or result shape; the server still registers 19 tools.
@@ -105,6 +167,7 @@ still registers 19 tools. Planned in [ROADMAP.md](https://github.com/mhmdaskari/
 - First release: browser-assisted session capture, project and file management, revision-checked
   and section-level writing, compilation, and review comments.
 
+[0.2.0]: https://github.com/mhmdaskari/overleaf-web-mcp/releases/tag/v0.2.0
 [0.1.4]: https://github.com/mhmdaskari/overleaf-web-mcp/releases/tag/v0.1.4
 [0.1.3]: https://github.com/mhmdaskari/overleaf-web-mcp/releases/tag/v0.1.3
 [0.1.2]: https://github.com/mhmdaskari/overleaf-web-mcp/releases/tag/v0.1.2
