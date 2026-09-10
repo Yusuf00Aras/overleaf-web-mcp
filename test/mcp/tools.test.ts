@@ -11,6 +11,13 @@ function fakeRuntime() {
   return {
     authStatus: vi.fn(async () => ({ authenticated: true })),
     account: { listProjects: vi.fn() },
+    projects: {
+      createProject: vi.fn(),
+      cloneProject: vi.fn(),
+      importProjectZip: vi.fn(),
+      manageProject: vi.fn(),
+      updateProjectSettings: vi.fn(),
+    },
     entities: {
       getProjectTree: vi.fn(),
       manageEntity: vi.fn(),
@@ -233,6 +240,101 @@ describe('MCP tool registration', () => {
     })
     expect(result.structuredContent).toEqual(listing)
     expect(JSON.parse(result.content[0].text)).toEqual(listing)
+  })
+
+  test('registers the project lifecycle tools with output schemas and the expected annotations', () => {
+    const registered = new Map<string, { config: any }>()
+    registerOverleafTools(
+      {
+        registerTool: (name: string, config: any) => {
+          registered.set(name, { config })
+        },
+      },
+      fakeRuntime()
+    )
+
+    for (const name of ['create_project', 'clone_project', 'import_project_zip']) {
+      expect(registered.get(name)?.config.annotations).toEqual({ destructiveHint: false, idempotentHint: false })
+      expect(registered.get(name)?.config.outputSchema).toHaveProperty('projectId')
+    }
+    expect(registered.get('manage_project')?.config.annotations).toEqual({
+      destructiveHint: true,
+      idempotentHint: false,
+    })
+    expect(registered.get('manage_project')?.config.description).toMatch(/confirmName/u)
+    expect(registered.get('manage_project')?.config.description).toMatch(/trashed/u)
+    expect(registered.get('update_project_settings')?.config.annotations).toEqual({
+      destructiveHint: false,
+      idempotentHint: true,
+    })
+    expect(registered.get('create_project')?.config.description).toMatch(/main\.tex/u)
+  })
+
+  test('refuses manage_project actions with missing companion fields before calling the runtime', async () => {
+    const runtime = fakeRuntime()
+    runtime.projects.manageProject.mockResolvedValue({ action: 'delete', projectId: 'p', name: 'Paper' })
+    const registered = new Map<string, (...args: any[]) => any>()
+    registerOverleafTools(
+      {
+        registerTool: (name: string, _config: any, handler: (...args: any[]) => any) => {
+          registered.set(name, handler)
+        },
+      },
+      runtime
+    )
+    const manage = registered.get('manage_project')!
+
+    const missing = await manage({ projectId: 'p', action: 'trash' })
+    expect(missing).toMatchObject({ isError: true })
+    expect(JSON.parse(missing.content[0].text)).toMatchObject({ code: 'INVALID_ARGUMENT' })
+    const rename = await manage({ projectId: 'p', action: 'rename' })
+    expect(JSON.parse(rename.content[0].text)).toMatchObject({ code: 'INVALID_ARGUMENT' })
+    expect(runtime.projects.manageProject).not.toHaveBeenCalled()
+
+    const deleted = await manage({ projectId: 'p', action: 'delete', confirmName: 'Paper' })
+    expect(runtime.projects.manageProject).toHaveBeenCalledWith('p', { action: 'delete', confirmName: 'Paper' })
+    expect(deleted.structuredContent).toEqual({ action: 'delete', projectId: 'p', name: 'Paper' })
+
+    await manage({ projectId: 'p', action: 'restore' })
+    expect(runtime.projects.manageProject).toHaveBeenCalledWith('p', { action: 'restore' })
+  })
+
+  test('forwards every project setting and the creation arguments unchanged', async () => {
+    const runtime = fakeRuntime()
+    runtime.projects.updateProjectSettings.mockResolvedValue({ projectId: 'p', rootDocPath: 'paper.tex' })
+    runtime.projects.createProject.mockResolvedValue({ projectId: 'n', name: 'New', url: 'u' })
+    runtime.projects.importProjectZip.mockResolvedValue({ projectId: 'z', name: 'Zip', url: 'u' })
+    const registered = new Map<string, (...args: any[]) => any>()
+    registerOverleafTools(
+      {
+        registerTool: (name: string, _config: any, handler: (...args: any[]) => any) => {
+          registered.set(name, handler)
+        },
+      },
+      runtime
+    )
+
+    const settings = await registered.get('update_project_settings')!({
+      projectId: 'p',
+      rootFilePath: 'paper.tex',
+      compiler: 'xelatex',
+      imageName: 'texlive-full:2024.1',
+      spellCheckLanguage: 'de',
+    })
+    expect(runtime.projects.updateProjectSettings).toHaveBeenCalledWith('p', {
+      rootFilePath: 'paper.tex',
+      compiler: 'xelatex',
+      imageName: 'texlive-full:2024.1',
+      spellCheckLanguage: 'de',
+    })
+    expect(settings.structuredContent).toEqual({ projectId: 'p', rootDocPath: 'paper.tex' })
+
+    await registered.get('create_project')!({ name: 'New', template: 'example' })
+    expect(runtime.projects.createProject).toHaveBeenCalledWith('New', 'example')
+    await registered.get('import_project_zip')!({ localZipPath: '/tmp/x.zip' })
+    expect(runtime.projects.importProjectZip).toHaveBeenCalledWith('/tmp/x.zip', undefined)
+    await registered.get('clone_project')!({ sourceProjectId: 's', name: 'Copy' })
+    expect(runtime.projects.cloneProject).toHaveBeenCalledWith('s', 'Copy')
   })
 
   test('registers a read-only history monitor and forwards its cursor', async () => {

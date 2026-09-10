@@ -40,6 +40,8 @@ export interface ProjectTree {
   compiler?: string
   /** TeX Live image the project compiles against. */
   imageName?: string
+  /** Spell-check language code, absent when spell checking is off. */
+  spellCheckLanguage?: string
   trackChangesActive: boolean
   hashNote: string
 }

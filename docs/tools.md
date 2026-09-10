@@ -1,6 +1,6 @@
 # Tool reference
 
-The server registers 19 tools. Names are `snake_case`. Every tool except `auth_status` and
+The server registers 24 tools. Names are `snake_case`. Every tool except `auth_status` and
 `list_projects` takes a `projectId` from `list_projects`. Results are JSON. Failures are JSON with
 `code`, `message`, `retryable`, and optional `details`; the codes are listed in the
 [safety model](safety.md#error-codes).

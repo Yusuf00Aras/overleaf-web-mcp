@@ -45,6 +45,7 @@ function harness() {
     rootDocId: 'doc',
     compiler: 'pdflatex',
     imageName: 'texlive-full:2024.1',
+    spellCheckLanguage: 'en',
   }
   const connections = {
     withConnection: async <T>(_id: string, operation: (value: typeof connection) => Promise<T>) =>
@@ -175,6 +176,7 @@ describe('entity API', () => {
       rootDocPath: 'chapters/old.tex',
       compiler: 'pdflatex',
       imageName: 'texlive-full:2024.1',
+      spellCheckLanguage: 'en',
       trackChangesActive: false,
     })
     const result = await api.getProjectTree('project')

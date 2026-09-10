@@ -13,11 +13,22 @@ import type { CompileApi } from '../overleaf/compile.js'
 import type { DocumentsApi, WriteMode } from '../overleaf/documents.js'
 import type { EntitiesApi, EntityAction } from '../overleaf/entities.js'
 import type { HistoryApi } from '../overleaf/history.js'
+import {
+  COMPILERS,
+  type ProjectAction,
+  type ProjectsApi,
+  type ProjectTemplate,
+} from '../overleaf/projects.js'
 import type { SectionsApi } from '../overleaf/sections-api.js'
 
 export const TOOL_NAMES = [
   'auth_status',
   'list_projects',
+  'create_project',
+  'clone_project',
+  'import_project_zip',
+  'manage_project',
+  'update_project_settings',
   'get_project_tree',
   'read_file',
   'write_file',
@@ -40,6 +51,10 @@ export const TOOL_NAMES = [
 export interface OverleafToolRuntime {
   authStatus(): Promise<unknown>
   account: Pick<AccountApi, 'listProjects'>
+  projects: Pick<
+    ProjectsApi,
+    'createProject' | 'cloneProject' | 'importProjectZip' | 'manageProject' | 'updateProjectSettings'
+  >
   entities: Pick<
     EntitiesApi,
     'getProjectTree' | 'manageEntity' | 'uploadFile' | 'downloadFile'
@@ -129,6 +144,18 @@ const projectSummarySchema = z.object({
   trashed: z.boolean(),
 })
 
+const projectName = z
+  .string()
+  .min(1)
+  .max(150)
+  .describe('Project name, 1 to 150 characters without slashes')
+
+const createdProjectSchema = {
+  projectId: z.string(),
+  name: z.string(),
+  url: z.string(),
+}
+
 export function registerOverleafTools(server: ToolRegistrar, runtime: OverleafToolRuntime): void {
   server.registerTool(
     'auth_status',
@@ -175,10 +202,137 @@ export function registerOverleafTools(server: ToolRegistrar, runtime: OverleafTo
     }))
   )
   server.registerTool(
+    'create_project',
+    {
+      description:
+        'Create a new Overleaf project and return its projectId, url, and rootDocPath. A "blank" project still contains Overleaf\'s stub main.tex as its root document; after importing your own manuscript, point the project at it with update_project_settings or delete the stub with manage_entity. "example" seeds Overleaf\'s example paper.',
+      inputSchema: {
+        name: projectName,
+        template: z.enum(['blank', 'example']).default('blank'),
+      },
+      outputSchema: { ...createdProjectSchema, rootDocPath: z.string().optional() },
+      annotations: { destructiveHint: false, idempotentHint: false },
+    },
+    structured(async (args: { name: string; template: ProjectTemplate }) => ({
+      ...(await runtime.projects.createProject(args.name, args.template)),
+    }))
+  )
+  server.registerTool(
+    'clone_project',
+    {
+      description:
+        'Copy an existing project, including its files and settings, into a new project with the given name. Use it to start from a lab or journal template project.',
+      inputSchema: { sourceProjectId: projectId.describe('Project to copy'), name: projectName },
+      outputSchema: createdProjectSchema,
+      annotations: { destructiveHint: false, idempotentHint: false },
+    },
+    structured(async (args: { sourceProjectId: string; name: string }) => ({
+      ...(await runtime.projects.cloneProject(args.sourceProjectId, args.name)),
+    }))
+  )
+  server.registerTool(
+    'import_project_zip',
+    {
+      description:
+        'Create a new project from a local .zip archive of LaTeX sources. name defaults to the archive file name. Overleaf caps archives at about 50 MB and rate-limits this route: RATE_LIMITED means wait details.retryAfterMs before trying again, and nothing was created. Set the root document afterwards with update_project_settings if the archive has more than one .tex file at the top level.',
+      inputSchema: {
+        localZipPath: z.string().min(1).describe('Local path of a .zip archive'),
+        name: projectName.optional(),
+      },
+      outputSchema: createdProjectSchema,
+      annotations: { destructiveHint: false, idempotentHint: false },
+    },
+    structured(async (args: { localZipPath: string; name?: string }) => ({
+      ...(await runtime.projects.importProjectZip(args.localZipPath, args.name)),
+    }))
+  )
+  server.registerTool(
+    'manage_project',
+    {
+      description:
+        'Rename, trash, restore, archive, unarchive, or permanently delete a project. trash, archive, and delete require confirmName to equal the current project name exactly, else CONFIRMATION_MISMATCH and nothing changes. trash is the normal way to remove a project and is reversible with restore or in the web UI. delete is permanent and only succeeds on a project that is already trashed. Confirm with the user before trashing or deleting.',
+      inputSchema: {
+        projectId,
+        action: z.enum(['rename', 'trash', 'restore', 'archive', 'unarchive', 'delete']),
+        newName: projectName.optional().describe('New name, for rename'),
+        confirmName: z
+          .string()
+          .optional()
+          .describe('Current project name, repeated exactly, for trash, archive, and delete'),
+      },
+      outputSchema: {
+        action: z.enum(['rename', 'trash', 'restore', 'archive', 'unarchive', 'delete']),
+        projectId: z.string(),
+        name: z.string(),
+      },
+      annotations: { destructiveHint: true, idempotentHint: false },
+    },
+    structured(async (args: {
+      projectId: string
+      action: ProjectAction['action']
+      newName?: string
+      confirmName?: string
+    }) => {
+      let action: ProjectAction
+      if (args.action === 'rename' && args.newName !== undefined) {
+        action = { action: args.action, newName: args.newName }
+      } else if (
+        (args.action === 'trash' || args.action === 'archive' || args.action === 'delete') &&
+        args.confirmName !== undefined
+      ) {
+        action = { action: args.action, confirmName: args.confirmName }
+      } else if (args.action === 'restore' || args.action === 'unarchive') {
+        action = { action: args.action }
+      } else {
+        throw new McpError('INVALID_ARGUMENT', `Missing fields for ${args.action}.`)
+      }
+      return { ...(await runtime.projects.manageProject(args.projectId, action)) }
+    })
+  )
+  server.registerTool(
+    'update_project_settings',
+    {
+      description:
+        "Persist the project's root document, TeX engine, TeX Live image, or spell-check language in Overleaf's own project settings, so the web UI's Recompile follows the change. rootFilePath must name an existing text document. Returns the settings as re-read from the project. Provide at least one field.",
+      inputSchema: {
+        projectId,
+        rootFilePath: filePath.optional().describe('Document Overleaf should compile by default'),
+        compiler: z.enum(COMPILERS).optional(),
+        imageName: z.string().min(1).optional().describe('TeX Live image, as shown in Overleaf\'s menu'),
+        spellCheckLanguage: z
+          .string()
+          .optional()
+          .describe('Overleaf language code such as en or de; an empty string turns spell checking off'),
+      },
+      outputSchema: {
+        projectId: z.string(),
+        rootDocPath: z.string().optional(),
+        compiler: z.string().optional(),
+        imageName: z.string().optional(),
+        spellCheckLanguage: z.string().optional(),
+      },
+      annotations: { destructiveHint: false, idempotentHint: true },
+    },
+    structured(async (args: {
+      projectId: string
+      rootFilePath?: string
+      compiler?: (typeof COMPILERS)[number]
+      imageName?: string
+      spellCheckLanguage?: string
+    }) => ({
+      ...(await runtime.projects.updateProjectSettings(args.projectId, {
+        rootFilePath: args.rootFilePath,
+        compiler: args.compiler,
+        imageName: args.imageName,
+        spellCheckLanguage: args.spellCheckLanguage,
+      })),
+    }))
+  )
+  server.registerTool(
     'get_project_tree',
     {
       description:
-        'Return the project file/folder tree with entity IDs and paths, plus the root document, compiler, and TeX Live image Overleaf compiles with. Each binary file entity carries hash, a git blob hash equal to `git hash-object <file>`; text documents have no hash and must be compared by reading their content.',
+        'Return the project file/folder tree with entity IDs and paths, plus the root document, compiler, TeX Live image, and spell-check language Overleaf uses. Each binary file entity carries hash, a git blob hash equal to `git hash-object <file>`; text documents have no hash and must be compared by reading their content.',
       inputSchema: { projectId },
       annotations: { readOnlyHint: true },
     },

@@ -11,6 +11,13 @@ function fakeRuntime() {
   return {
     authStatus: vi.fn(),
     account: { listProjects: vi.fn() },
+    projects: {
+      createProject: vi.fn(),
+      cloneProject: vi.fn(),
+      importProjectZip: vi.fn(),
+      manageProject: vi.fn(),
+      updateProjectSettings: vi.fn(),
+    },
     entities: {
       getProjectTree: vi.fn(),
       manageEntity: vi.fn(),
@@ -92,7 +99,7 @@ describe('MCP server', () => {
 
     expect(instructions).toBe(SERVER_INSTRUCTIONS)
     // The contract an assistant must know without reading the docs.
-    for (const term of ['read_file', 'revision', 'REVISION_CONFLICT', 'upload_file', 'confirmPath', 'AUTH_EXPIRED']) {
+    for (const term of ['read_file', 'revision', 'REVISION_CONFLICT', 'upload_file', 'confirmPath', 'confirmName', 'manage_project', 'AUTH_EXPIRED']) {
       expect(instructions).toContain(term)
     }
     // Instructions ride along on every session; keep them short enough to be read.

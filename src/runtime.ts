@@ -10,8 +10,9 @@ import { CompileApi } from './overleaf/compile.js'
 import { DocumentsApi, type WriteMode } from './overleaf/documents.js'
 import { EntitiesApi } from './overleaf/entities.js'
 import { HistoryApi } from './overleaf/history.js'
+import { ProjectsApi } from './overleaf/projects.js'
 import { SectionsApi } from './overleaf/sections-api.js'
-import { resolveProjectPath } from './overleaf/tree.js'
+import { resolveProjectPath, type EntityType } from './overleaf/tree.js'
 import { ProjectConnectionCache } from './protocol/connection-cache.js'
 import { openProjectConnection } from './protocol/connect.js'
 import type { ProjectConnection } from './protocol/project-connection.js'
@@ -38,6 +39,7 @@ export class OverleafRuntime implements OverleafToolRuntime {
   readonly compile: CompileApi
   readonly comments: CommentsApi
   readonly history: HistoryApi
+  readonly projects: ProjectsApi
   readonly connections: ProjectConnectionCache<ProjectConnection>
   readonly userId?: string
 
@@ -52,6 +54,7 @@ export class OverleafRuntime implements OverleafToolRuntime {
     compile: CompileApi
     comments: CommentsApi
     history: HistoryApi
+    projects: ProjectsApi
     connections: ProjectConnectionCache<ProjectConnection>
     userId?: string
   }) {
@@ -65,6 +68,7 @@ export class OverleafRuntime implements OverleafToolRuntime {
     this.compile = options.compile
     this.comments = options.comments
     this.history = options.history
+    this.projects = options.projects
     this.connections = options.connections
     if (options.userId !== undefined) this.userId = options.userId
   }
@@ -120,14 +124,16 @@ export class OverleafRuntime implements OverleafToolRuntime {
     })
     const entities = new EntitiesApi(http, connections)
     const sections = new SectionsApi(documents)
+    // A fresh join before resolving, so a path is never looked up in a stale tree.
+    const resolvePath = async (projectId: string, path: string, type: EntityType) => {
+      await connections.invalidate(projectId)
+      return await connections.withConnection(projectId, async connection =>
+        await connection.queue.run(() => resolveProjectPath(connection.getTree(), path, type))
+      )
+    }
     const compile = new CompileApi(
       http,
-      async (projectId, path, type) => {
-        await connections.invalidate(projectId)
-        return await connections.withConnection(projectId, async connection =>
-          await connection.queue.run(() => resolveProjectPath(connection.getTree(), path, type))
-        )
-      },
+      resolvePath,
       config.compileTimeoutMs,
       // Overleaf's own root document, so a compile that names no root matches the web UI.
       async projectId => {
@@ -141,6 +147,14 @@ export class OverleafRuntime implements OverleafToolRuntime {
       ...(bootstrap.userId === undefined ? {} : { currentUserId: bootstrap.userId }),
     })
     const history = new HistoryApi(http)
+    const projects = new ProjectsApi({
+      http,
+      baseUrl: config.baseUrl,
+      findProject: async projectId => await account.findProject(projectId),
+      resolvePath,
+      getProjectTree: async projectId => await entities.getProjectTree(projectId),
+      invalidate: async projectId => await connections.invalidate(projectId),
+    })
 
     return new OverleafRuntime({
       config,
@@ -153,6 +167,7 @@ export class OverleafRuntime implements OverleafToolRuntime {
       compile,
       comments,
       history,
+      projects,
       connections,
       ...(bootstrap.userId === undefined ? {} : { userId: bootstrap.userId }),
     })

@@ -5,13 +5,15 @@
  */
 export const SERVER_INSTRUCTIONS = `Overleaf Web MCP gives you access to the Overleaf projects of the signed-in account through an unofficial client of Overleaf's private web APIs. Follow these rules.
 
-Find the project first. list_projects returns project ids; every other tool needs a projectId. get_project_tree returns the entities plus rootDocPath, compiler, and imageName. rootDocPath is the document Overleaf compiles by default.
+Find the project first. list_projects returns project ids, newest first, hiding archived and trashed projects unless asked; every other tool needs a projectId. get_project_tree returns the entities plus rootDocPath, compiler, and imageName. rootDocPath is the document Overleaf compiles by default.
+
+Projects. create_project, clone_project, and import_project_zip return a new projectId. A blank project's root is Overleaf's stub main.tex, so after adding the real manuscript set rootFilePath with update_project_settings or delete the stub. manage_project trash, archive, and delete need confirmName equal to the project name; delete is permanent and only works on a trashed project, so prefer trash.
 
 Editing text. Always call read_file before write_file or write_section, and pass back the returned revision unchanged. On REVISION_CONFLICT, read again and reconcile against the new content; never reuse a stale revision and never retry a write blindly. Send the complete replacement text (or localPath for a file already on disk); the server computes a minimal edit. Use writeMode "tracked" when the user wants the edit to appear as an Overleaf tracked change for review; tracked writes never fall back to untracked.
 
 Binaries and whole-file replacement. upload_file replaces whatever exists at the destination path, with no revision check and never as a tracked change. Prefer write_file for text a collaborator might be editing. hash values on binary files are git blob hashes (git hash-object); documents have no hash, so compare text by reading it.
 
-Destructive actions. manage_entity delete requires confirmPath equal to path. download_file refuses to overwrite a local file unless overwrite is true. Confirm with the user before deleting or overwriting anything.
+Destructive actions. manage_entity delete requires confirmPath equal to path, and manage_project requires confirmName; a wrong value fails with CONFIRMATION_MISMATCH and changes nothing. download_file refuses to overwrite a local file unless overwrite is true. Confirm with the user before deleting or overwriting anything.
 
 Compiling. compile_project with no rootFilePath builds the project's configured root document. Compiles consume the account's compile allowance, so do not compile in a loop. COMPILE_FAILED carries Overleaf's status in details.
 

@@ -5,7 +5,7 @@
 <p align="center">
   <a href="https://www.npmjs.com/package/overleaf-web-mcp"><img alt="npm version" src="https://img.shields.io/npm/v/overleaf-web-mcp?color=1F6FEB"></a>
   <img alt="Node.js 20 or newer" src="https://img.shields.io/badge/Node.js-20%2B-339933?logo=nodedotjs&amp;logoColor=white">
-  <img alt="19 MCP tools" src="https://img.shields.io/badge/MCP-19_tools-1F6FEB">
+  <img alt="24 MCP tools" src="https://img.shields.io/badge/MCP-24_tools-1F6FEB">
   <a href="https://mhmdaskari.github.io/overleaf-web-mcp/"><img alt="Documentation" src="https://img.shields.io/badge/docs-mhmdaskari.github.io-0F766E"></a>
   <img alt="MIT license" src="https://img.shields.io/badge/License-MIT-0F766E">
 </p>
@@ -86,7 +86,7 @@ Client-by-client steps, self-hosted Overleaf, and troubleshooting, including the
 | --- | --- |
 | [Install](https://mhmdaskari.github.io/overleaf-web-mcp/install/) | Claude Code, Claude Desktop, Cursor, VS Code, self-hosted Overleaf, troubleshooting |
 | [Using it](https://mhmdaskari.github.io/overleaf-web-mcp/using/) | Example prompts and what happens underneath |
-| [Tool reference](https://mhmdaskari.github.io/overleaf-web-mcp/tools/) | All 19 tools with parameters and results |
+| [Tool reference](https://mhmdaskari.github.io/overleaf-web-mcp/tools/) | All 24 tools with parameters and results |
 | [Safety model](https://mhmdaskari.github.io/overleaf-web-mcp/safety/) | Revisions, tracked changes, confirmations, error codes |
 | [Configuration](https://mhmdaskari.github.io/overleaf-web-mcp/configuration/) | Environment variables and where the session is stored |
 | [Internals](https://mhmdaskari.github.io/overleaf-web-mcp/internals/) | Protocol notes, reliability guarantees, related projects |
