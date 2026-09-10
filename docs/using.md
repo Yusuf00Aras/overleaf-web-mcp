@@ -9,14 +9,14 @@ and check the assistant's behaviour.
 **Projects**
 
 - "Create a new Overleaf project called *Grant renewal* and make `proposal.tex` its root document."
-- "Start a project from the zip in `~/papers/cheersafe.zip`."
+- "Start a project from the zip in `~/papers/manuscript.zip`."
 - "Clone the *Lab template* project as *Smith 2026*."
 - "Trash the *Old draft* project." The assistant will confirm the project name with you first.
 
 **Finding things**
 
 - "List my ten most recently updated Overleaf projects."
-- "Find the projects with *CHEERSafe* in the name, including archived ones."
+- "Find the projects with *Thesis* in the name, including archived ones."
 - "Show me the file tree of the *Thesis* project. Which file is the root document?"
 - "Read the abstract from `main.tex`."
 

@@ -21,7 +21,7 @@ Overleaf Web MCP is an unofficial [Model Context Protocol](https://modelcontextp
 Once connected, talk to your assistant in plain language. It picks the tools.
 
 - "Create a new project called *Grant renewal* from the folder I zipped, and make `proposal.tex` the root."
-- "List my Overleaf projects and open the one called *CHEERSafe*."
+- "List my Overleaf projects and open the one called *Thesis*."
 - "Rewrite the introduction of `main.tex` for a general audience, as a tracked change."
 - "Compile the paper and tell me whether it built."
 - "Which figures in `./figures` differ from what's in the project? Upload only those."
