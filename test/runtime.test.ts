@@ -48,15 +48,15 @@ describe('runtime bootstrap', () => {
     const runtime = await OverleafRuntime.create(config, {
       fetcher: async input => {
         const url = String(input)
+        if (url.endsWith('/api/project')) {
+          return new Response(
+            JSON.stringify({ totalSize: 1, projects: [{ _id: 'p', name: 'Paper', accessLevel: 'owner' }] }),
+            { headers: { 'content-type': 'application/json' } }
+          )
+        }
         if (url.endsWith('/project')) {
           return new Response(
             '<meta name="ol-csrfToken" content="csrf"><meta name="ol-user_id" content="user">'
-          )
-        }
-        if (url.endsWith('/user/projects')) {
-          return new Response(
-            JSON.stringify({ projects: [{ _id: 'p', name: 'Paper', accessLevel: 'owner' }] }),
-            { headers: { 'content-type': 'application/json' } }
           )
         }
         throw new Error(`unexpected URL ${url}`)

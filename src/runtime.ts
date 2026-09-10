@@ -167,12 +167,12 @@ export class OverleafRuntime implements OverleafToolRuntime {
     warning?: string
     socketPresenceNotice: string
   }> {
-    const projects = await this.account.listProjects()
+    const projectCount = await this.account.countProjects()
     return {
       authenticated: true,
       baseUrl: this.config.baseUrl,
       ...(this.userId === undefined ? {} : { userId: this.userId }),
-      projectCount: projects.length,
+      projectCount,
       permissionsUnchecked: this.cookieStore.permissions.permissionsUnchecked,
       ...(this.cookieStore.permissions.warning === undefined
         ? {}

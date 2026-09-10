@@ -2,6 +2,12 @@ import { z } from 'zod'
 
 import { asMcpError, McpError } from '../core/errors.js'
 import { resolveTextContent } from '../core/local-file.js'
+import {
+  DEFAULT_PROJECT_LIMIT,
+  MAX_PROJECT_LIMIT,
+  type AccountApi,
+  type ListProjectsOptions,
+} from '../overleaf/account.js'
 import type { AddCommentInput, CommentsApi } from '../overleaf/comments.js'
 import type { CompileApi } from '../overleaf/compile.js'
 import type { DocumentsApi, WriteMode } from '../overleaf/documents.js'
@@ -33,7 +39,7 @@ export const TOOL_NAMES = [
 
 export interface OverleafToolRuntime {
   authStatus(): Promise<unknown>
-  account: { listProjects(): Promise<unknown> }
+  account: Pick<AccountApi, 'listProjects'>
   entities: Pick<
     EntitiesApi,
     'getProjectTree' | 'manageEntity' | 'uploadFile' | 'downloadFile'
@@ -97,6 +103,32 @@ function handler<T>(operation: (args: T) => Promise<unknown>): (args: T) => Prom
   }
 }
 
+/**
+ * Like `handler`, for tools that declare an `outputSchema`: the result is returned both as
+ * `structuredContent` and as the JSON text block older clients read.
+ */
+function structured<T>(
+  operation: (args: T) => Promise<Record<string, unknown>>
+): (args: T) => Promise<Record<string, unknown>> {
+  return async args => {
+    try {
+      const value = await operation(args)
+      return { ...success(value), structuredContent: value }
+    } catch (error) {
+      return failure(error)
+    }
+  }
+}
+
+const projectSummarySchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  accessLevel: z.string(),
+  lastUpdated: z.string().optional(),
+  archived: z.boolean(),
+  trashed: z.boolean(),
+})
+
 export function registerOverleafTools(server: ToolRegistrar, runtime: OverleafToolRuntime): void {
   server.registerTool(
     'auth_status',
@@ -109,10 +141,38 @@ export function registerOverleafTools(server: ToolRegistrar, runtime: OverleafTo
   server.registerTool(
     'list_projects',
     {
-      description: 'List Overleaf projects accessible to the authenticated account.',
+      description:
+        'List the projects the account can access, newest first by default. Archived and trashed projects are hidden unless includeArchived or includeTrashed is set. Returns projects with id, name, accessLevel, lastUpdated, archived, and trashed, plus totalMatched (before limit) and totalProjects (everything the account can access).',
+      inputSchema: {
+        query: z
+          .string()
+          .min(1)
+          .optional()
+          .describe('Case-insensitive substring of the project name'),
+        includeArchived: z.boolean().default(false),
+        includeTrashed: z.boolean().default(false),
+        limit: z
+          .number()
+          .int()
+          .min(1)
+          .max(MAX_PROJECT_LIMIT)
+          .default(DEFAULT_PROJECT_LIMIT)
+          .describe(`Maximum projects returned, at most ${MAX_PROJECT_LIMIT}`),
+        sort: z
+          .enum(['lastUpdated', 'name'])
+          .default('lastUpdated')
+          .describe('lastUpdated is newest first; name is alphabetical'),
+      },
+      outputSchema: {
+        projects: z.array(projectSummarySchema),
+        totalMatched: z.number().int(),
+        totalProjects: z.number().int(),
+      },
       annotations: { readOnlyHint: true },
     },
-    handler(async () => await runtime.account.listProjects())
+    structured(async (args: ListProjectsOptions) => ({
+      ...(await runtime.account.listProjects(args)),
+    }))
   )
   server.registerTool(
     'get_project_tree',

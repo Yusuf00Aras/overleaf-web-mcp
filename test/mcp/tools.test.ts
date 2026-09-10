@@ -207,6 +207,34 @@ describe('MCP tool registration', () => {
     expect(result.content[0].text).not.toContain('stack')
   })
 
+  test('forwards list_projects filters and mirrors the listing as structuredContent', async () => {
+    const runtime = fakeRuntime()
+    const listing = { projects: [], totalMatched: 0, totalProjects: 3 }
+    runtime.account.listProjects.mockResolvedValue(listing)
+    const registered = new Map<string, { config: any; handler: (...args: any[]) => any }>()
+    registerOverleafTools(
+      {
+        registerTool: (name: string, config: any, handler: (...args: any[]) => any) => {
+          registered.set(name, { config, handler })
+        },
+      },
+      runtime
+    )
+
+    const tool = registered.get('list_projects')
+    expect(tool?.config.annotations).toEqual({ readOnlyHint: true })
+    expect(tool?.config.outputSchema).toHaveProperty('projects')
+    const result = await tool?.handler({ query: 'thesis', includeTrashed: true, limit: 5, sort: 'name' })
+    expect(runtime.account.listProjects).toHaveBeenCalledWith({
+      query: 'thesis',
+      includeTrashed: true,
+      limit: 5,
+      sort: 'name',
+    })
+    expect(result.structuredContent).toEqual(listing)
+    expect(JSON.parse(result.content[0].text)).toEqual(listing)
+  })
+
   test('registers a read-only history monitor and forwards its cursor', async () => {
     const runtime = fakeRuntime()
     const registered = new Map<string, { config: any; handler: (...args: any[]) => any }>()

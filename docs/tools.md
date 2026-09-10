@@ -23,12 +23,21 @@ A missing or expired session fails with `AUTH_EXPIRED`.
 
 ### `list_projects` <small>read-only</small>
 
-List the projects the account can access.
+List the projects the account can access, newest first by default.
 
-No parameters.
+| Parameter | Required | Meaning |
+| --- | :---: | --- |
+| `query` | no | Case-insensitive substring of the project name |
+| `includeArchived` | no | Include archived projects; default `false` |
+| `includeTrashed` | no | Include trashed projects; default `false` |
+| `limit` | no | Maximum projects returned; default 50, at most 200 |
+| `sort` | no | `lastUpdated` (newest first, the default) or `name` |
 
-Returns an array of `{ id, name, accessLevel }` sorted by name. Every project is returned; there
-is no filter yet (see the [roadmap](roadmap.md)).
+Returns `projects`, an array of `{ id, name, accessLevel, lastUpdated, archived, trashed }`,
+plus `totalMatched` (how many passed the filters before `limit`) and `totalProjects` (everything
+the account can access, archived and trashed included). Overleaf returns the whole list in one
+response, so filtering and `limit` happen in the server; there is no server-side pagination to
+expose. The result is also returned as `structuredContent`.
 
 ## Projects and files
 
