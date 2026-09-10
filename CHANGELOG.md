@@ -4,6 +4,17 @@ All notable changes to this project are documented here. This project follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html). Until 1.0.0, tool schemas and
 result shapes may change in a minor or patch release; each such change is listed below.
 
+## [0.2.1] - 2026-09-10
+
+Documentation only. No tool was added, removed, or changed in schema or result shape; the server
+still registers 24 tools.
+
+### Changed
+
+- The example project names in the README, the documentation site, and the roadmap are now generic
+  placeholders, consistent with the other examples around them. They previously named a real
+  project.
+
 ## [0.2.0] - 2026-09-10
 
 Project lifecycle. Until now every tool took an existing `projectId`, so an agent could not create,
