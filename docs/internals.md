@@ -7,8 +7,10 @@ debugging, contributing, or deciding whether to trust a particular behaviour.
 
 Two channels are used, both through the same saved web session:
 
-- **Private REST endpoints**, the ones the Overleaf editor itself calls, for the project list,
-  the file tree operations, uploads, downloads, compiles, comment threads, and history.
+- **Private REST endpoints**, the ones the Overleaf editor and dashboard call, for the project
+  list, project creation, cloning, zip import, renaming, trash and archive state, project
+  settings, the file tree operations, uploads, downloads, compiles, comment threads, and history.
+  Every route is listed in the [private API catalogue](private-api.md).
 - **Socket.IO 0.9 with operational transformation (OT)** for reading and writing document text.
   The server implements the Socket.IO 0.9 wire format used by the targeted Overleaf client family
   and rejects unsupported protocol versions at project bootstrap.
@@ -68,6 +70,13 @@ Representative rather than exhaustive; capabilities change over time.
 | [`@netique/overleaf-mcp`](https://github.com/netique/overleaf-mcp) | Browser session plus private REST and Socket.IO/OT | A close web/OT peer with review comments and tracked-change workflows |
 | [`overleaf-mcp-rt`](https://github.com/DanielHou315/overleaf-mcp-rt) | Session authentication plus native OT | Real-time file and compile tooling focused on self-hosted Community Edition |
 | [`OverleafMCP`](https://github.com/mjyoo2/OverleafMCP), [`overleaf-mcp-server`](https://github.com/YounesBensafia/overleaf-mcp-server), [`vibeTeX`](https://github.com/oscardvs/vibetex) | Overleaf Git bridge | Git-backed synchronization, editing, and history |
+
+The Git-bridge servers need Overleaf's Git integration, a paid feature on `www.overleaf.com`, and
+work on the repository rather than the live document, so their edits bypass tracked changes and
+revision checks entirely. Web-session peers such as `@netique/overleaf-mcp` share this project's
+connection model and also offer tracked changes; what sets this project apart is the project
+lifecycle tools, the verified-write guarantees described above, and the roadmap's sync and
+multi-file plans.
 
 Review-range investigation was informed by
 [Overleaf Comment Exporter](https://github.com/salokr/overleaf-comment-exporter). Real-time

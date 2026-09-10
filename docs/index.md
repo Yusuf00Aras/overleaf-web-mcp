@@ -19,6 +19,7 @@ integration and no premium plan for the core workflow.
 
 Once connected, you talk to your assistant in plain language. The assistant picks the tools.
 
+- "Create a new project called *Grant renewal* from the folder I zipped, and make `proposal.tex` the root."
 - "List my Overleaf projects and open the one called *CHEERSafe*."
 - "Rewrite the introduction of `main.tex` for a general audience, as a tracked change."
 - "Compile the paper and tell me whether it built."
@@ -27,8 +28,13 @@ Once connected, you talk to your assistant in plain language. The assistant pick
 
 ## What it can do
 
-**Browse and organize.** List projects, read the file tree with the configured root document and
-compiler, create folders and files, rename, move, upload, download, and delete with confirmation.
+**Start and manage projects.** Create a blank or example project, clone one, or import a zip;
+rename, trash, restore, or archive projects with the name confirmed first; set the root document,
+TeX engine, and TeX Live image so the web editor's Recompile follows.
+
+**Browse and organize.** List and search projects, read the file tree with the configured root
+document and compiler, create folders and files, rename, move, upload, download, and delete with
+confirmation.
 
 **Write safely.** Replace a whole document or a single section. Every edit is checked against the
 revision you read first, so a collaborator's concurrent change is reported instead of overwritten.

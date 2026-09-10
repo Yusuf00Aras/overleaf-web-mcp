@@ -27,9 +27,13 @@ changes for review. If tracking is not possible, for example because the session
 authenticated user id, the call fails rather than quietly writing an untracked edit.
 
 **Destructive actions need a second value.** Deleting an entity with `manage_entity` requires
-`confirmPath` to equal `path` exactly. `download_file` refuses to replace an existing local file
-unless `overwrite` is `true`. `upload_file` replaces whatever exists at the destination path, so
-it is annotated as destructive and its description says so.
+`confirmPath` to equal `path` exactly. Trashing, archiving, or deleting a project with
+`manage_project` requires `confirmName` to equal the project's current name exactly, without
+trimming, and the check happens before any request is sent. A wrong value fails with
+`CONFIRMATION_MISMATCH` and changes nothing. Projects follow Overleaf's own model: trash first,
+which is reversible, and permanent deletion only from the trash. `download_file` refuses to
+replace an existing local file unless `overwrite` is `true`. `upload_file` replaces whatever exists
+at the destination path, so it is annotated as destructive and its description says so.
 
 **Your session stays yours.** Cookies are saved in a file only your user can read, are never
 returned by any tool, and are never logged. The server logs no document content, diffs,
@@ -50,6 +54,11 @@ repeats this notice.
 - Explicit tracked writes never fall back to untracked writes. They require an authenticated user
   id, while `trackChangesActive` separately reports the project state observed at connection time.
 - `manage_entity` deletion requires `confirmPath` to exactly equal `path`, else `CONFIRMATION_MISMATCH`.
+- `manage_project` `trash`, `archive`, and `delete` require `confirmName` to exactly equal the
+  current project name, else `CONFIRMATION_MISMATCH`. `delete` is refused with `INVALID_ARGUMENT`
+  unless the project is already trashed.
+- `update_project_settings` persists in the project itself and reports the settings as re-read
+  from a fresh join, never the values it was asked to set.
 - `get_project_tree` reports `hash` as a git blob hash, `sha1("blob " + byteLength + "\0" +
   content)`, which is exactly what `git hash-object <file>` prints. Plain `sha1sum` never matches.
   The hash is present only on binary `file` entities; Overleaf stores no content hash for `doc`

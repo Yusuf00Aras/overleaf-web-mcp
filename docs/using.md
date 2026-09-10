@@ -6,9 +6,17 @@ and check the assistant's behaviour.
 
 ## Example prompts
 
+**Projects**
+
+- "Create a new Overleaf project called *Grant renewal* and make `proposal.tex` its root document."
+- "Start a project from the zip in `~/papers/cheersafe.zip`."
+- "Clone the *Lab template* project as *Smith 2026*."
+- "Trash the *Old draft* project." The assistant will confirm the project name with you first.
+
 **Finding things**
 
-- "List my Overleaf projects."
+- "List my ten most recently updated Overleaf projects."
+- "Find the projects with *CHEERSafe* in the name, including archived ones."
 - "Show me the file tree of the *Thesis* project. Which file is the root document?"
 - "Read the abstract from `main.tex`."
 
@@ -42,11 +50,29 @@ and check the assistant's behaviour.
 
 ## What happens underneath
 
+### From nothing to a compiled PDF
+
+Everything below happens through MCP tools; no step needs the web UI.
+
+1. `create_project` with a name returns `projectId`, `url`, and `rootDocPath: "main.tex"`, the
+   stub Overleaf puts in every blank project. `import_project_zip` does the same from a local
+   archive, and `clone_project` copies an existing project.
+2. `create_file` or `upload_file` adds the real manuscript, for example `paper.tex`, and any
+   figures and bibliography files.
+3. `update_project_settings` with `rootFilePath: "paper.tex"` makes it the root document, so both
+   `compile_project` and the web editor's Recompile build it. The same call can set the `compiler`
+   and TeX Live `imageName`.
+4. `compile_project` with no `rootFilePath` builds the configured root.
+5. When the project is no longer needed, `manage_project` with `action: "trash"` and
+   `confirmName` equal to the project's name moves it to the trash, where it can be restored.
+   Permanent deletion is a separate `delete` action that only works on an already-trashed project.
+
 ### Browsing and organizing
 
-1. `list_projects` returns project names and ids.
+1. `list_projects` returns projects newest first with their ids, hiding archived and trashed
+   projects unless asked. `query` narrows by name and `limit` caps the page.
 2. `get_project_tree` returns every file and folder with its path, plus `rootDocPath`,
-   `compiler`, and `imageName` for the project.
+   `compiler`, `imageName`, and `spellCheckLanguage` for the project.
 3. `create_file` creates a text document; `manage_entity` creates folders and renames, moves, or
    deletes entities; `upload_file` sends a local file; `download_file` saves one locally.
 
