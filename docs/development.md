@@ -30,10 +30,13 @@ npm test -- test/live
 ```
 
 Add `RUN_OVERLEAF_LIVE_REVIEW_TESTS=1` for review reads,
-`RUN_OVERLEAF_LIVE_TRACKED_WRITE_TESTS=1` for a disposable tracked file create and delete, or
-`RUN_OVERLEAF_LIVE_HISTORY_TESTS=1` for read-only history normalization. Feature availability
-depends on the deployment and account. Keep request volume low and treat cleanup failures as test
-failures.
+`RUN_OVERLEAF_LIVE_TRACKED_WRITE_TESTS=1` for a disposable tracked file create and delete,
+`RUN_OVERLEAF_LIVE_HISTORY_TESTS=1` for read-only history normalization, or
+`RUN_OVERLEAF_LIVE_LIFECYCLE_TESTS=1` to create a throwaway project named `mcp-lifecycle-<time>`,
+set its root document, compile it once, and trash it. The lifecycle test never deletes
+permanently; remove the trashed project by hand from the web UI's Trashed view. Feature
+availability depends on the deployment and account. Keep request volume low and treat cleanup
+failures as test failures.
 
 ## Documentation site
 
@@ -69,8 +72,8 @@ steps in a form meant for an agent working on the code. `CLAUDE.md` imports it f
 
 ## Current exclusions
 
-Git workflows, collaborator and account administration, billing, chat, background history
-watching, backward history pagination, version diffs and restoration, label mutation, and editing
-or deleting individual comment messages are outside the current release. Private API
+Git workflows, collaborator and sharing administration, account and billing settings, chat,
+background history watching, backward history pagination, version diffs and restoration, label
+mutation, and editing or deleting individual comment messages are outside the current release. Private API
 compatibility is version-specific and maintained on a best-effort basis. See the
 [roadmap](roadmap.md) for what is planned.

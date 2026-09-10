@@ -1,0 +1,83 @@
+# Private API catalogue
+
+Every Overleaf route the server calls, with the request fields it sends and the response fields it
+reads. These are the browser-facing endpoints of Overleaf's open-source web service
+(`overleaf/overleaf`, `services/web/app/src/router.mjs`), reached through the saved web session
+and its CSRF token. None of them is a public or documented API, so this page is the contract the
+server assumes and the first place to look when Overleaf changes something.
+
+Responses are private API shapes. The server reads only the fields listed here, validates the
+ones it depends on, and never logs or returns a response body. Where a response is validated, an
+unexpected shape surfaces as `PROTOCOL_UNSUPPORTED` rather than a parse exception.
+
+## Session and bootstrap
+
+| Method and route | Sent | Read | Notes |
+| --- | --- | --- | --- |
+| `GET /project` | session cookie | `<meta name="ol-csrfToken">`, `ol-user_id`, `ol-maxDocLength` from the HTML | Runs once at startup. A missing CSRF token means the session expired (`AUTH_EXPIRED`). |
+| `GET /socket.io/1/?...` and `WS /socket.io/1/websocket/:sessionId` | session cookie, `projectId` | Socket.IO 0.9 handshake, then the `joinProject` payload: `project.rootFolder`, `rootDoc_id`, `compiler`, `imageName`, `spellCheckLanguage`, `trackChangesState`, `permissionsLevel`, `protocolVersion` | One cached socket per project; document text goes over this channel as OT. |
+
+## Projects
+
+| Method and route | Sent | Read | Used by |
+| --- | --- | --- | --- |
+| `POST /api/project` | `{}` | `totalSize`, `projects[]` with `_id` or `id`, `name`, `accessLevel`, `lastUpdated`, `archived`, `trashed` (validated) | `list_projects`, `auth_status`, and the name and trashed check behind `manage_project` |
+| `POST /project/new` | `{ projectName, template }` where `template` is `example` or `none` | `project_id` (validated) | `create_project` |
+| `POST /Project/:id/clone` | `{ projectName }` | `project_id` (validated) | `clone_project` |
+| `POST /project/new/upload` | multipart `qqfile` (the archive) and `name` | `project_id` (validated); `{ success: false, error }` or HTTP 422 with a short `error` code on rejection; HTTP 429 when throttled | `import_project_zip` |
+| `POST /project/:id/rename` | `{ newProjectName }` | nothing | `manage_project` `rename` |
+| `POST /project/:id/settings` | any of `rootDocId`, `compiler`, `imageName`, `spellCheckLanguage` | nothing; the server re-joins the project to report the persisted values | `update_project_settings` |
+| `POST /project/:id/trash`, `DELETE /project/:id/trash` | nothing | nothing | `manage_project` `trash`, `restore` |
+| `POST /Project/:id/archive`, `DELETE /Project/:id/archive` | nothing | nothing | `manage_project` `archive`, `unarchive` |
+| `DELETE /Project/:id` | nothing | nothing | `manage_project` `delete`; the server only sends it for a project the list reports as trashed |
+
+The capitalised `/Project/` prefix is Overleaf's own; both spellings are live routes.
+
+## Files and folders
+
+| Method and route | Sent | Read | Used by |
+| --- | --- | --- | --- |
+| `POST /project/:id/doc` | `{ parent_folder_id, name }` | `_id` | `create_file` |
+| `POST /project/:id/folder` | `{ parent_folder_id, name }` | `_id` | `manage_entity` `create_folder` |
+| `POST /project/:id/:type/:entityId/rename` | `{ name }` | nothing | `manage_entity` `rename` |
+| `POST /project/:id/:type/:entityId/move` | `{ folder_id }` | nothing | `manage_entity` `move` |
+| `DELETE /project/:id/:type/:entityId` | nothing | nothing | `manage_entity` `delete`; deleting a folder removes its subtree |
+| `POST /project/:id/upload?folder_id=` | multipart `qqfile` and `name` | `success`, `entity_id`, `entity_type`, `hash`; HTTP 422 with a short `error` code on rejection | `upload_file` |
+| `GET /Project/:id/doc/:entityId/download`, `GET /Project/:id/file/:entityId` | nothing | raw bytes | `download_file` |
+
+`:type` is `doc`, `file`, or `folder`. Rejection codes the server translates: `duplicate_file_name`,
+`invalid_filename`, `project_has_too_many_files`, `folder_not_found` (uploads);
+`invalid_zip_file`, `empty_zip_file`, `zip_contents_too_large` (zip import). Only a value matching
+`^[a-z][a-z0-9_]{0,63}$` is ever propagated, under `details.overleafError`.
+
+## Compilation
+
+| Method and route | Sent | Read | Used by |
+| --- | --- | --- | --- |
+| `POST /project/:id/compile` | `{ rootDoc_id, check: "silent", incrementalCompilesEnabled: true }` | `status`, `outputFiles[]`, `stats`, and the rest of the response, passed through | `compile_project` |
+| `POST /project/:id/compile/stop` | nothing | nothing | `stop_compile` |
+
+## Review
+
+| Method and route | Sent | Read | Used by |
+| --- | --- | --- | --- |
+| `GET /project/:id/threads` | nothing | thread ids, messages, authors, resolution state | `list_comments` |
+| `GET /project/:id/ranges` | nothing | per-document comment ranges, when the deployment exposes it | `list_comments` |
+| `POST /project/:id/thread/:threadId/messages` | `{ content }` | nothing | `add_comment`, `reply_to_comment` |
+| `DELETE /project/:id/doc/:docId/thread/:threadId` | nothing | nothing | orphan cleanup after a failed `add_comment` attachment |
+| `POST /project/:id/doc/:docId/thread/:threadId/resolve` and `/reopen` | nothing | nothing | `set_comment_status` on ShareJS documents |
+
+Comment ranges themselves travel over the OT channel, not REST.
+
+## History
+
+| Method and route | Sent | Read | Used by |
+| --- | --- | --- | --- |
+| `GET /project/:id/updates?min_count=25` | nothing | `updates[]` with version ranges, timestamps, and users (validated; email fields dropped) | `monitor_project_history` |
+
+## HTTP status mapping
+
+The HTTP client maps statuses before any tool sees them: 401 or a redirect to `/login` is
+`AUTH_EXPIRED`, 403 is `PERMISSION_DENIED`, 404 is `NOT_FOUND`, 413 is `UPDATE_TOO_LARGE`, 429 is
+`RATE_LIMITED` with `retryAfterMs` from `Retry-After` when present, and anything else that is not
+successful is `REMOTE_ERROR` with `details.status`. Writes are never retried on any of these.

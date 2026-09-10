@@ -1,0 +1,258 @@
+import { mkdtemp, writeFile } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+
+import { describe, expect, test, vi } from 'vitest'
+
+import { McpError } from '../../src/core/errors.js'
+import { ProjectsApi } from '../../src/overleaf/projects.js'
+import type { ProjectEntity, ProjectTree } from '../../src/overleaf/tree.js'
+
+const rootDoc: ProjectEntity = {
+  id: 'doc',
+  name: 'main.tex',
+  path: 'main.tex',
+  type: 'doc',
+  parentFolderId: 'root',
+}
+
+function harness(overrides: { name?: string; trashed?: boolean; archived?: boolean } = {}) {
+  const calls: string[] = []
+  const http = {
+    postJson: vi.fn(async () => ({ project_id: 'new' })),
+    deleteJson: vi.fn(async () => ({})),
+    postForm: vi.fn(async () => ({ project_id: 'imported' })),
+  }
+  const tree: ProjectTree = {
+    entities: [rootDoc],
+    rootDocPath: 'main.tex',
+    compiler: 'pdflatex',
+    imageName: 'texlive-full:2024.1',
+    spellCheckLanguage: 'en',
+    trackChangesActive: false,
+    hashNote: '',
+  }
+  const options = {
+    http,
+    baseUrl: 'https://overleaf.test',
+    findProject: vi.fn(async () => ({
+      name: overrides.name ?? 'Paper',
+      trashed: overrides.trashed ?? false,
+      archived: overrides.archived ?? false,
+    })),
+    resolvePath: vi.fn(async () => rootDoc),
+    getProjectTree: vi.fn(async () => {
+      calls.push('tree')
+      return tree
+    }),
+    invalidate: vi.fn(async () => {
+      calls.push('invalidate')
+    }),
+  }
+  return { api: new ProjectsApi(options), http, options, calls }
+}
+
+describe('projects API', () => {
+  test('creates a blank project and reports its stub root from a real tree read', async () => {
+    const { api, http, options } = harness()
+
+    await expect(api.createProject('Thesis')).resolves.toEqual({
+      projectId: 'new',
+      name: 'Thesis',
+      url: 'https://overleaf.test/project/new',
+      rootDocPath: 'main.tex',
+    })
+    expect(http.postJson).toHaveBeenCalledWith('/project/new', { projectName: 'Thesis', template: 'none' })
+    expect(options.getProjectTree).toHaveBeenCalledWith('new')
+  })
+
+  test('passes the example template through and rejects bad names before any request', async () => {
+    const { api, http } = harness()
+
+    await api.createProject('Example', 'example')
+    expect(http.postJson).toHaveBeenCalledWith('/project/new', { projectName: 'Example', template: 'example' })
+
+    await expect(api.createProject('a/b')).rejects.toMatchObject({ code: 'INVALID_ARGUMENT' })
+    await expect(api.createProject(' ')).rejects.toMatchObject({ code: 'INVALID_ARGUMENT' })
+    expect(http.postJson).toHaveBeenCalledTimes(1)
+  })
+
+  test('hands back the new projectId when the tree cannot be read after creation', async () => {
+    const { api, options } = harness()
+    options.getProjectTree.mockRejectedValue(new McpError('TIMEOUT', 'slow'))
+
+    await expect(api.createProject('Thesis')).rejects.toMatchObject({
+      code: 'REMOTE_ERROR',
+      details: { projectId: 'new' },
+    })
+  })
+
+  test('reports an unexpected creation response as PROTOCOL_UNSUPPORTED', async () => {
+    const { api, http } = harness()
+    http.postJson.mockResolvedValue({} as never)
+
+    await expect(api.createProject('Thesis')).rejects.toMatchObject({ code: 'PROTOCOL_UNSUPPORTED' })
+  })
+
+  test('clones a project through the capitalised route', async () => {
+    const { api, http } = harness()
+
+    await expect(api.cloneProject('source', 'Copy')).resolves.toEqual({
+      projectId: 'new',
+      name: 'Copy',
+      url: 'https://overleaf.test/project/new',
+    })
+    expect(http.postJson).toHaveBeenCalledWith('/Project/source/clone', { projectName: 'Copy' })
+  })
+
+  describe('zip import', () => {
+    test('uploads the archive as multipart with the project name defaulting to the file name', async () => {
+      const { api, http } = harness()
+      const dir = await mkdtemp(join(tmpdir(), 'olzip-'))
+      const zipPath = join(dir, 'My Paper.zip')
+      await writeFile(zipPath, new Uint8Array([0x50, 0x4b, 0x03, 0x04]))
+
+      await expect(api.importProjectZip(zipPath)).resolves.toEqual({
+        projectId: 'imported',
+        name: 'My Paper',
+        url: 'https://overleaf.test/project/imported',
+      })
+      const [path, form] = http.postForm.mock.calls[0] as unknown as [string, FormData]
+      expect(path).toBe('/project/new/upload')
+      expect(form.get('name')).toBe('My Paper')
+      expect((form.get('qqfile') as File).name).toBe('My Paper.zip')
+    })
+
+    test('rejects a non-zip path before reading it and reports a missing file as NOT_FOUND', async () => {
+      const { api, http } = harness()
+
+      await expect(api.importProjectZip('/tmp/paper.tar.gz')).rejects.toMatchObject({ code: 'INVALID_ARGUMENT' })
+      await expect(api.importProjectZip('/nonexistent/paper.zip')).rejects.toMatchObject({ code: 'NOT_FOUND' })
+      expect(http.postForm).not.toHaveBeenCalled()
+    })
+
+    test('translates Overleaf rejections and lets rate limits pass through', async () => {
+      const { api, http } = harness()
+      const dir = await mkdtemp(join(tmpdir(), 'olzip-'))
+      const zipPath = join(dir, 'paper.zip')
+      await writeFile(zipPath, new Uint8Array([1]))
+
+      http.postForm.mockRejectedValueOnce(
+        new McpError('REMOTE_ERROR', 'HTTP 422', { details: { status: 422, overleafError: 'invalid_zip_file' } })
+      )
+      await expect(api.importProjectZip(zipPath)).rejects.toMatchObject({
+        code: 'INVALID_ARGUMENT',
+        details: { overleafError: 'invalid_zip_file' },
+      })
+
+      http.postForm.mockRejectedValueOnce(
+        new McpError('RATE_LIMITED', 'slow down', { retryable: true, details: { status: 429, retryAfterMs: 5000 } })
+      )
+      await expect(api.importProjectZip(zipPath)).rejects.toMatchObject({
+        code: 'RATE_LIMITED',
+        details: { retryAfterMs: 5000 },
+      })
+
+      http.postForm.mockResolvedValueOnce({ success: false, error: 'empty_zip_file' } as never)
+      await expect(api.importProjectZip(zipPath)).rejects.toMatchObject({
+        code: 'INVALID_ARGUMENT',
+        details: { overleafError: 'empty_zip_file' },
+      })
+    })
+  })
+
+  describe('manage_project', () => {
+    test('renames after validating the name and invalidates the cached connection', async () => {
+      const { api, http, options } = harness()
+
+      await expect(api.manageProject('p', { action: 'rename', newName: 'Renamed' })).resolves.toEqual({
+        action: 'rename',
+        projectId: 'p',
+        name: 'Renamed',
+      })
+      expect(http.postJson).toHaveBeenCalledWith('/project/p/rename', { newProjectName: 'Renamed' })
+      expect(options.invalidate).toHaveBeenCalledTimes(1)
+    })
+
+    test('refuses trash, archive, and delete when confirmName differs, without touching Overleaf', async () => {
+      const { api, http } = harness({ name: 'Paper', trashed: true })
+
+      for (const action of ['trash', 'archive', 'delete'] as const) {
+        await expect(api.manageProject('p', { action, confirmName: 'paper' })).rejects.toMatchObject({
+          code: 'CONFIRMATION_MISMATCH',
+        })
+      }
+      expect(http.postJson).not.toHaveBeenCalled()
+      expect(http.deleteJson).not.toHaveBeenCalled()
+    })
+
+    test('trashes, archives, restores, and unarchives through the matching routes', async () => {
+      const { api, http } = harness()
+
+      await api.manageProject('p', { action: 'trash', confirmName: 'Paper' })
+      expect(http.postJson).toHaveBeenCalledWith('/project/p/trash')
+      await api.manageProject('p', { action: 'archive', confirmName: 'Paper' })
+      expect(http.postJson).toHaveBeenCalledWith('/Project/p/archive')
+      await api.manageProject('p', { action: 'restore' })
+      expect(http.deleteJson).toHaveBeenCalledWith('/project/p/trash')
+      await api.manageProject('p', { action: 'unarchive' })
+      expect(http.deleteJson).toHaveBeenCalledWith('/Project/p/archive')
+    })
+
+    test('permanently deletes only a project that is already trashed', async () => {
+      const live = harness({ trashed: false })
+      await expect(
+        live.api.manageProject('p', { action: 'delete', confirmName: 'Paper' })
+      ).rejects.toMatchObject({ code: 'INVALID_ARGUMENT' })
+      expect(live.http.deleteJson).not.toHaveBeenCalled()
+
+      const trashed = harness({ trashed: true })
+      await expect(
+        trashed.api.manageProject('p', { action: 'delete', confirmName: 'Paper' })
+      ).resolves.toEqual({ action: 'delete', projectId: 'p', name: 'Paper' })
+      expect(trashed.http.deleteJson).toHaveBeenCalledWith('/Project/p')
+    })
+
+    test('fails with NOT_FOUND for a project the account cannot see', async () => {
+      const { api, http, options } = harness()
+      options.findProject.mockRejectedValue(new McpError('NOT_FOUND', 'missing'))
+
+      await expect(api.manageProject('p', { action: 'restore' })).rejects.toMatchObject({ code: 'NOT_FOUND' })
+      expect(http.deleteJson).not.toHaveBeenCalled()
+    })
+  })
+
+  describe('update_project_settings', () => {
+    test('requires at least one setting', async () => {
+      const { api, http } = harness()
+
+      await expect(api.updateProjectSettings('p', {})).rejects.toMatchObject({ code: 'INVALID_ARGUMENT' })
+      expect(http.postJson).not.toHaveBeenCalled()
+    })
+
+    test('resolves rootFilePath to a document id, posts only the given keys, and re-reads the project', async () => {
+      const { api, http, options, calls } = harness()
+
+      await expect(
+        api.updateProjectSettings('p', { rootFilePath: 'main.tex', compiler: 'xelatex' })
+      ).resolves.toEqual({
+        projectId: 'p',
+        rootDocPath: 'main.tex',
+        compiler: 'pdflatex',
+        imageName: 'texlive-full:2024.1',
+        spellCheckLanguage: 'en',
+      })
+      expect(options.resolvePath).toHaveBeenCalledWith('p', 'main.tex', 'doc')
+      expect(http.postJson).toHaveBeenCalledWith('/project/p/settings', { rootDocId: 'doc', compiler: 'xelatex' })
+      // The cached join never learns about settings changes, so the re-read must follow an invalidate.
+      expect(calls).toEqual(['invalidate', 'tree'])
+    })
+
+    test('sends an empty spellCheckLanguage to turn spell checking off', async () => {
+      const { api, http } = harness()
+
+      await api.updateProjectSettings('p', { spellCheckLanguage: '' })
+      expect(http.postJson).toHaveBeenCalledWith('/project/p/settings', { spellCheckLanguage: '' })
+    })
+  })
+})

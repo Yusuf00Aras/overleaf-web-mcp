@@ -11,6 +11,13 @@ function fakeRuntime() {
   return {
     authStatus: vi.fn(),
     account: { listProjects: vi.fn() },
+    projects: {
+      createProject: vi.fn(),
+      cloneProject: vi.fn(),
+      importProjectZip: vi.fn(),
+      manageProject: vi.fn(),
+      updateProjectSettings: vi.fn(),
+    },
     entities: {
       getProjectTree: vi.fn(),
       manageEntity: vi.fn(),
@@ -62,13 +69,37 @@ describe('MCP server', () => {
     await server.close()
   })
 
+  test('returns structuredContent that satisfies the declared outputSchema over the transport', async () => {
+    const runtime = fakeRuntime()
+    const listing = {
+      projects: [{ id: 'p', name: 'Paper', accessLevel: 'owner', archived: false, trashed: false }],
+      totalMatched: 1,
+      totalProjects: 1,
+    }
+    runtime.account.listProjects.mockResolvedValue(listing)
+    const server = createMcpServer(runtime)
+    const client = new Client({ name: 'smoke-client', version: '1.0.0' })
+    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair()
+    await Promise.all([server.connect(serverTransport), client.connect(clientTransport)])
+
+    const listed = await client.listTools()
+    expect(listed.tools.find(tool => tool.name === 'list_projects')?.outputSchema).toBeDefined()
+    const result = await client.callTool({ name: 'list_projects', arguments: { query: 'Pap' } })
+    expect(result.structuredContent).toEqual(listing)
+    expect(runtime.account.listProjects).toHaveBeenCalledWith(
+      expect.objectContaining({ query: 'Pap', includeArchived: false, limit: 50 })
+    )
+    await client.close()
+    await server.close()
+  })
+
   test('sends bounded usage instructions in the initialize response', async () => {
     const { server, client } = await connectedPair()
     const instructions = client.getInstructions()
 
     expect(instructions).toBe(SERVER_INSTRUCTIONS)
     // The contract an assistant must know without reading the docs.
-    for (const term of ['read_file', 'revision', 'REVISION_CONFLICT', 'upload_file', 'confirmPath', 'AUTH_EXPIRED']) {
+    for (const term of ['read_file', 'revision', 'REVISION_CONFLICT', 'upload_file', 'confirmPath', 'confirmName', 'manage_project', 'AUTH_EXPIRED']) {
       expect(instructions).toContain(term)
     }
     // Instructions ride along on every session; keep them short enough to be read.

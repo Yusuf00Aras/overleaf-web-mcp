@@ -1,14 +1,17 @@
 # Tool reference
 
-The server registers 19 tools. Names are `snake_case`. Every tool except `auth_status` and
-`list_projects` takes a `projectId` from `list_projects`. Results are JSON. Failures are JSON with
-`code`, `message`, `retryable`, and optional `details`; the codes are listed in the
-[safety model](safety.md#error-codes).
+The server registers 24 tools. Names are `snake_case`. Every tool except `auth_status`,
+`list_projects`, `create_project`, and `import_project_zip` takes a `projectId` from
+`list_projects` or from one of the tools that create a project. Results are JSON; the project
+lifecycle tools and `list_projects` also declare an `outputSchema` and return the same object as
+`structuredContent`. Failures are JSON with `code`, `message`, `retryable`, and optional `details`;
+the codes are listed in the [safety model](safety.md#error-codes). The Overleaf routes behind each
+tool are catalogued in the [private API page](private-api.md).
 
 Each tool declares MCP annotations: **read-only** tools change nothing on Overleaf; **destructive**
 tools can replace or remove existing content. Clients may use these to decide when to ask the user.
 
-## Account and connection
+## Account and projects
 
 ### `auth_status` <small>read-only</small>
 
@@ -23,12 +26,100 @@ A missing or expired session fails with `AUTH_EXPIRED`.
 
 ### `list_projects` <small>read-only</small>
 
-List the projects the account can access.
+List the projects the account can access, newest first by default.
 
-No parameters.
+| Parameter | Required | Meaning |
+| --- | :---: | --- |
+| `query` | no | Case-insensitive substring of the project name |
+| `includeArchived` | no | Include archived projects; default `false` |
+| `includeTrashed` | no | Include trashed projects; default `false` |
+| `limit` | no | Maximum projects returned; default 50, at most 200 |
+| `sort` | no | `lastUpdated` (newest first, the default) or `name` |
 
-Returns an array of `{ id, name, accessLevel }` sorted by name. Every project is returned; there
-is no filter yet (see the [roadmap](roadmap.md)).
+Returns `projects`, an array of `{ id, name, accessLevel, lastUpdated, archived, trashed }`,
+plus `totalMatched` (how many passed the filters before `limit`) and `totalProjects` (everything
+the account can access, archived and trashed included). Overleaf returns the whole list in one
+response, so filtering and `limit` happen in the server; there is no server-side pagination to
+expose. The result is also returned as `structuredContent`.
+
+## Project lifecycle
+
+### `create_project`
+
+Create a new project and return its id.
+
+| Parameter | Required | Meaning |
+| --- | :---: | --- |
+| `name` | yes | Project name, 1 to 150 characters without slashes |
+| `template` | no | `blank` (default) or `example`, Overleaf's example paper |
+
+Returns `projectId`, `name`, `url`, and `rootDocPath`. A blank project still contains Overleaf's
+stub `main.tex` as its root document. After adding the real manuscript, point the project at it
+with `update_project_settings` or delete the stub with `manage_entity`; otherwise Recompile builds
+the stub. If the project was created but its tree could not be read, the error carries the new
+`projectId` in `details` so the assistant does not create a duplicate.
+
+### `clone_project`
+
+Copy an existing project, files and settings included, into a new one.
+
+| Parameter | Required | Meaning |
+| --- | :---: | --- |
+| `sourceProjectId` | yes | Project to copy |
+| `name` | yes | Name of the copy |
+
+Returns `projectId`, `name`, and `url`.
+
+### `import_project_zip`
+
+Create a new project from a local `.zip` archive of LaTeX sources.
+
+| Parameter | Required | Meaning |
+| --- | :---: | --- |
+| `localZipPath` | yes | Local path of a `.zip` archive |
+| `name` | no | Project name; defaults to the archive's file name without `.zip` |
+
+Returns `projectId`, `name`, and `url`. Overleaf caps archives at about 50 MB
+(`UPDATE_TOO_LARGE`) and rate-limits this route: `RATE_LIMITED` means nothing was created and
+`details.retryAfterMs`, when present, says how long to wait. Overleaf's rejections
+(`invalid_zip_file`, `empty_zip_file`, `zip_contents_too_large`, `invalid_filename`) surface as
+`INVALID_ARGUMENT` with the code in `details.overleafError`. If the archive has several top-level
+`.tex` files, set the root with `update_project_settings` afterwards.
+
+### `manage_project` <small>destructive</small>
+
+Rename, trash, restore, archive, unarchive, or permanently delete a project.
+
+| Parameter | Required | Meaning |
+| --- | :---: | --- |
+| `projectId` | yes | Project id |
+| `action` | yes | `rename`, `trash`, `restore`, `archive`, `unarchive`, or `delete` |
+| `newName` | for `rename` | New name, 1 to 150 characters without slashes |
+| `confirmName` | for `trash`, `archive`, `delete` | Must equal the current project name exactly, else `CONFIRMATION_MISMATCH` |
+
+Returns `action`, `projectId`, and the project's `name` after the action. `trash` is the normal
+way to remove a project: it is reversible with `restore` or from the web UI's Trashed view.
+`delete` is permanent and only succeeds on a project that is already trashed; on a live project it
+fails with `INVALID_ARGUMENT` and changes nothing. The name check happens before any request is
+sent, so a wrong `confirmName` never reaches Overleaf. Trashed and archived projects disappear
+from `list_projects` unless `includeTrashed` or `includeArchived` is set.
+
+### `update_project_settings`
+
+Persist compile and editor settings in the project itself, so the web UI follows them too.
+
+| Parameter | Required | Meaning |
+| --- | :---: | --- |
+| `projectId` | yes | Project id |
+| `rootFilePath` | one of | Document Overleaf should compile by default; must be an existing text document |
+| `compiler` | one of | `pdflatex`, `latex`, `xelatex`, or `lualatex` |
+| `imageName` | one of | TeX Live image name, as shown in Overleaf's menu |
+| `spellCheckLanguage` | one of | Overleaf language code such as `en` or `de`; `""` turns spell checking off |
+
+At least one setting is required. Returns `projectId`, `rootDocPath`, `compiler`, `imageName`,
+and `spellCheckLanguage` as re-read from a fresh project join, so the result reflects what
+Overleaf actually stored. A `rootFilePath` that does not exist fails with `NOT_FOUND`; one that
+names a folder or binary file fails with `INVALID_ARGUMENT`.
 
 ## Projects and files
 
@@ -42,7 +133,8 @@ Return the file and folder tree together with the project's compile settings.
 
 Returns `entities`, an array of `{ id, name, path, type, parentFolderId, hash? }` where `type` is
 `doc` (text), `file` (binary), or `folder`, plus `rootDocPath` (the document Overleaf compiles by
-default), `compiler`, `imageName` (the TeX Live image), `trackChangesActive`, and `hashNote`.
+default), `compiler`, `imageName` (the TeX Live image), `spellCheckLanguage` when spell checking
+is on, `trackChangesActive`, and `hashNote`.
 
 `hash` is present only on binary `file` entities and is a git blob hash:
 `sha1("blob " + byteLength + "\0" + content)`, exactly what `git hash-object <file>` prints. Plain
@@ -104,7 +196,7 @@ Create a folder, or rename, move, or delete an existing document, file, or folde
 | `path` | yes | For `create_folder`, the folder to create; otherwise the entity to act on |
 | `newName` | for `rename` | New name without slashes |
 | `destinationFolderPath` | for `move` | Target folder; `""` is the project root |
-| `confirmPath` | for `delete` | Must equal `path` exactly |
+| `confirmPath` | for `delete` | Must equal `path` exactly, else `CONFIRMATION_MISMATCH` |
 
 Returns the `action`, the affected entity `id` (or the created folder), and `trackChangesActive`.
 Deleting a folder removes everything inside it.

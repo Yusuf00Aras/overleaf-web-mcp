@@ -27,6 +27,7 @@ export interface JoinProjectData {
     rootDoc_id?: string
     compiler?: string
     imageName?: string
+    spellCheckLanguage?: string
     [key: string]: unknown
   }
   permissionsLevel: string
@@ -238,6 +239,12 @@ export class ProjectConnection {
   get imageName(): string | undefined {
     const imageName = this.project.imageName
     return typeof imageName === 'string' && imageName !== '' ? imageName : undefined
+  }
+
+  /** Spell-check language code, absent when Overleaf reports none or spell checking is off. */
+  get spellCheckLanguage(): string | undefined {
+    const language = this.project.spellCheckLanguage
+    return typeof language === 'string' && language !== '' ? language : undefined
   }
 
   getTree(): ProjectEntity[] {

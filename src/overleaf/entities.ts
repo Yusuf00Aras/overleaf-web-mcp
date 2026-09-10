@@ -28,6 +28,7 @@ interface TreeConnection {
   rootDocId?: string | undefined
   compiler?: string | undefined
   imageName?: string | undefined
+  spellCheckLanguage?: string | undefined
 }
 
 /** Overleaf reports every upload rejection as HTTP 422 with a machine-readable code. */
@@ -110,6 +111,9 @@ export class EntitiesApi {
           ...(rootDocPath === undefined ? {} : { rootDocPath }),
           ...(connection.compiler === undefined ? {} : { compiler: connection.compiler }),
           ...(connection.imageName === undefined ? {} : { imageName: connection.imageName }),
+          ...(connection.spellCheckLanguage === undefined
+            ? {}
+            : { spellCheckLanguage: connection.spellCheckLanguage }),
           trackChangesActive: connection.trackChangesActive,
           hashNote: TREE_HASH_NOTE,
         }
@@ -197,7 +201,7 @@ export class EntitiesApi {
         }
         if (normalizeProjectPath(input.confirmPath) !== normalized || input.confirmPath !== input.path) {
           throw new McpError(
-            'INVALID_ARGUMENT',
+            'CONFIRMATION_MISMATCH',
             'confirmPath must exactly match path before an entity can be deleted.'
           )
         }

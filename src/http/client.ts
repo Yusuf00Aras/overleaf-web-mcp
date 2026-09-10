@@ -40,6 +40,15 @@ async function safeErrorCode(response: Response): Promise<string | undefined> {
   }
 }
 
+/** `Retry-After` is either whole seconds or an HTTP date; anything else yields no hint. */
+function parseRetryAfter(header: string | null): number | undefined {
+  if (header === null) return undefined
+  const trimmed = header.trim()
+  if (/^\d+$/u.test(trimmed)) return Number(trimmed) * 1000
+  const at = Date.parse(trimmed)
+  return Number.isNaN(at) ? undefined : Math.max(0, at - Date.now())
+}
+
 function responseSetCookies(headers: Headers): string[] {
   const enhanced = headers as Headers & { getSetCookie?: () => string[] }
   if (enhanced.getSetCookie) return enhanced.getSetCookie()
@@ -136,6 +145,17 @@ export class OverleafHttpClient {
         'UPDATE_TOO_LARGE',
         'Overleaf rejected the request as too large. Split it into smaller revisioned operations.'
       )
+    }
+    if (response.status === 429) {
+      const retryAfterMs = parseRetryAfter(response.headers.get('retry-after'))
+      throw new McpError('RATE_LIMITED', 'Overleaf rate-limited this request. Wait before retrying.', {
+        retryable: true,
+        details: {
+          status: 429,
+          path,
+          ...(retryAfterMs === undefined ? {} : { retryAfterMs }),
+        },
+      })
     }
     if (!response.ok) {
       const overleafError = await safeErrorCode(response)

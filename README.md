@@ -5,7 +5,7 @@
 <p align="center">
   <a href="https://www.npmjs.com/package/overleaf-web-mcp"><img alt="npm version" src="https://img.shields.io/npm/v/overleaf-web-mcp?color=1F6FEB"></a>
   <img alt="Node.js 20 or newer" src="https://img.shields.io/badge/Node.js-20%2B-339933?logo=nodedotjs&amp;logoColor=white">
-  <img alt="19 MCP tools" src="https://img.shields.io/badge/MCP-19_tools-1F6FEB">
+  <img alt="24 MCP tools" src="https://img.shields.io/badge/MCP-24_tools-1F6FEB">
   <a href="https://mhmdaskari.github.io/overleaf-web-mcp/"><img alt="Documentation" src="https://img.shields.io/badge/docs-mhmdaskari.github.io-0F766E"></a>
   <img alt="MIT license" src="https://img.shields.io/badge/License-MIT-0F766E">
 </p>
@@ -20,6 +20,7 @@ Overleaf Web MCP is an unofficial [Model Context Protocol](https://modelcontextp
 
 Once connected, talk to your assistant in plain language. It picks the tools.
 
+- "Create a new project called *Grant renewal* from the folder I zipped, and make `proposal.tex` the root."
 - "List my Overleaf projects and open the one called *CHEERSafe*."
 - "Rewrite the introduction of `main.tex` for a general audience, as a tracked change."
 - "Compile the paper and tell me whether it built."
@@ -64,7 +65,8 @@ Client-by-client steps, self-hosted Overleaf, and troubleshooting, including the
 
 ## What it can do
 
-- **Browse and organize.** List projects, read the file tree with the configured root document and compiler, create folders and files, rename, move, upload, download, and delete with confirmation.
+- **Start and manage projects.** Create a blank or example project, clone one, or import a zip; rename, trash, restore, or archive projects with the name confirmed first; set the root document, TeX engine, and TeX Live image so the web editor's Recompile follows.
+- **Browse and organize.** List and search projects, read the file tree with the configured root document and compiler, create folders and files, rename, move, upload, download, and delete with confirmation.
 - **Write safely.** Replace a whole document or a single section. Every edit is checked against the revision you read first, so a collaborator's concurrent change is reported instead of overwritten. Edits can be recorded as Overleaf tracked changes.
 - **Work by section.** Parse `\section` headings in a file, read one section, replace one section.
 - **Compile.** Build the project's configured root document, or any document you name, and stop a running compile.
@@ -75,7 +77,7 @@ Client-by-client steps, self-hosted Overleaf, and troubleshooting, including the
 
 - Text edits require the revision from a prior read and fail with a conflict if the document changed underneath.
 - Tracked changes are opt-in and never silently downgraded to plain edits.
-- Deletes require the path to be confirmed. Downloads never overwrite a local file unless asked.
+- Deleting a file requires its path to be confirmed, and trashing or deleting a project requires its name. Projects go to the trash first; permanent deletion only works from there. Downloads never overwrite a local file unless asked.
 - A write that times out is observed, never resubmitted, so nothing is applied twice.
 - Your session cookie stays on your machine in a file only you can read, and is never returned by any tool.
 - While a project is open, up to 90 seconds after the last call, you may appear online to collaborators.
@@ -86,7 +88,7 @@ Client-by-client steps, self-hosted Overleaf, and troubleshooting, including the
 | --- | --- |
 | [Install](https://mhmdaskari.github.io/overleaf-web-mcp/install/) | Claude Code, Claude Desktop, Cursor, VS Code, self-hosted Overleaf, troubleshooting |
 | [Using it](https://mhmdaskari.github.io/overleaf-web-mcp/using/) | Example prompts and what happens underneath |
-| [Tool reference](https://mhmdaskari.github.io/overleaf-web-mcp/tools/) | All 19 tools with parameters and results |
+| [Tool reference](https://mhmdaskari.github.io/overleaf-web-mcp/tools/) | All 24 tools with parameters and results |
 | [Safety model](https://mhmdaskari.github.io/overleaf-web-mcp/safety/) | Revisions, tracked changes, confirmations, error codes |
 | [Configuration](https://mhmdaskari.github.io/overleaf-web-mcp/configuration/) | Environment variables and where the session is stored |
 | [Internals](https://mhmdaskari.github.io/overleaf-web-mcp/internals/) | Protocol notes, reliability guarantees, related projects |

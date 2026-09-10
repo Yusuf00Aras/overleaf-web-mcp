@@ -112,3 +112,52 @@ describe.skipIf(!enabled)('disposable Overleaf live project', () => {
     }
   )
 })
+
+describe.skipIf(!enabled || process.env.RUN_OVERLEAF_LIVE_LIFECYCLE_TESTS !== '1')(
+  'disposable Overleaf project lifecycle',
+  () => {
+    let runtime: OverleafRuntime
+
+    beforeAll(async () => {
+      runtime = await OverleafRuntime.create(readConfig())
+    })
+
+    afterAll(async () => {
+      await runtime?.close()
+    })
+
+    test('creates, configures, compiles, and trashes a project without the web UI', async () => {
+      const name = `mcp-lifecycle-${Date.now()}`
+      const created = await runtime.projects.createProject(name, 'blank')
+      try {
+        expect(created.rootDocPath).toBe('main.tex')
+
+        // The dashboard endpoint must return every project, or listing and counting would lie.
+        const fetched = await runtime.account.fetchProjects()
+        expect(fetched.projects).toHaveLength(fetched.totalSize)
+        const listing = await runtime.account.listProjects({ query: name })
+        expect(listing.projects.map(project => project.id)).toContain(created.projectId)
+
+        await runtime.createFile(
+          created.projectId,
+          'paper.tex',
+          '\\documentclass{article}\n\\begin{document}\nDisposable lifecycle test.\n\\end{document}\n'
+        )
+        const settings = await runtime.projects.updateProjectSettings(created.projectId, {
+          rootFilePath: 'paper.tex',
+        })
+        expect(settings.rootDocPath).toBe('paper.tex')
+        await expect(runtime.compile.compileProject(created.projectId)).resolves.toMatchObject({
+          status: 'success',
+          rootFilePath: 'paper.tex',
+        })
+      } finally {
+        // Trash, never delete: a failed assertion must leave something a human can inspect.
+        await runtime.projects.manageProject(created.projectId, { action: 'trash', confirmName: name })
+        await expect(runtime.account.findProject(created.projectId)).resolves.toMatchObject({
+          trashed: true,
+        })
+      }
+    })
+  }
+)
