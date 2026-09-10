@@ -39,7 +39,7 @@ Each stage assumes the previous one shipped. Tool names follow the existing snak
 | --- | --- | :---: | --- |
 | v0.1.3 | Documentation, metadata, small additive fixes | 0 | Behaviour that had to be reverse-engineered |
 | v0.2.0 | Project lifecycle | 5 | No way to create, rename, trash, or configure a project |
-| v0.3.0 | Bulk and sync | 5 | 24 one-at-a-time calls to sync one folder |
+| v0.3.0 | Bulk and sync; session keepalive | 5 | 24 one-at-a-time calls to sync one folder; a saved session that dies after 5 idle days |
 | v0.4.0 | Compile and build ergonomics | 2 | Success inferred from counters; no PDF or log access |
 | v0.5.0 | Multi-file documents | 1 | Section tools stop at `\input` boundaries |
 | v1.0.0 | Hardening | 0 | Failure modes that are not yet legible |
@@ -68,7 +68,7 @@ The code moves on between releases. Confirm the following before touching anythi
 what you find:
 
 - [ ] `npm view overleaf-web-mcp version` and `git tag` agree with `package.json` and
-      `SERVER_VERSION` in `src/version.ts`. Current release: `0.2.0`.
+      `SERVER_VERSION` in `src/version.ts`. Current release: `0.2.1`.
 - [ ] `TOOL_NAMES` in `src/mcp/tools.ts` lists the 24 registered tools: `auth_status`,
       `list_projects`, `create_project`, `clone_project`, `import_project_zip`, `manage_project`,
       `update_project_settings`, `get_project_tree`, `read_file`, `write_file`, `create_file`,
@@ -232,7 +232,7 @@ update_project_settings({ projectId: string, rootFilePath?: string,
 
 ---
 
-## v0.3.0 — Bulk and sync operations
+## v0.3.0 — Bulk and sync operations, and session keepalive
 
 **Motivation:** almost everything after authentication in the session was one-file-at-a-time: 3 text overwrites, 1 binary upload, and **20 individual `manage_entity` delete calls**, each needing its own `confirmPath`. Before that, a hand-rolled diff over 9 local figures established that none of them needed re-uploading. That comparison is generically useful and should not be reinvented per caller.
 
@@ -301,6 +301,24 @@ download_project_zip({ projectId: string, localPath: string, overwrite?: boolean
 
 Keep `manage_entity` and `upload_file` exactly as they are underneath; every tool here is a composition of existing primitives.
 
+### Session keepalive (CLI command, no new tool)
+
+**Motivation:** on 10 September 2026 the server failed to start in Claude Code with nothing more than "Connection closed". The saved session had expired: `serve` bootstraps `GET /project` before it answers `initialize`, so an expired session exits with `AUTH_EXPIRED` on stderr and the client reports a dead process, not an error a person can read. Checked the same day against `www.overleaf.com`: `overleaf_session2` is issued with `Max-Age=432000`, five days (Overleaf's default `cookieSessionLength`, which is also how long the server keeps the session), and **every response re-issues the cookie with a fresh five-day expiry** (express-session's `rolling` option). The HTTP client already merges refreshed `Set-Cookie` headers into the jar through `CookieStore.mergeSetCookies`, so a session used at least once every five days never expires, and one left alone for five days is gone. Nothing client-side can lengthen that: editing the expiry in `cookies.txt` only keeps sending a cookie the server has already forgotten. The problem is the gap between two uses, and a scheduled request closes it.
+
+```bash
+overleaf-web-mcp keepalive
+# stdout, exit 0:  { "refreshed": true, "baseUrl": "...", "sessionExpiresAt": "<ISO 8601>", "userId"?: "..." }
+# stderr, exit 1:  the normalized McpError JSON (AUTH_EXPIRED when the session is already dead)
+```
+
+**Design decisions:**
+
+- **A CLI subcommand, not an MCP tool.** A tool runs only while a client has the server open, which is exactly when the session is already being refreshed. `keepalive` runs the existing startup bootstrap (`OverleafRuntime.create`: `GET /project`, CSRF check, cookie merge), reports, and exits. It reuses the `main().catch` error path in `src/cli.ts`, so `AUTH_EXPIRED` lands on stderr as JSON and the exit code is non-zero for a scheduler to alert on. On that path Overleaf's redirect hands out an anonymous session that replaces the dead cookie in the jar; that is harmless, the old one was already rejected, but it must never be reported as `refreshed: true`.
+- **`sessionExpiresAt` is read from the jar after the merge, never from a cookie value.** Report the earliest finite expiry among the cookies the jar would send with `GET /project`; the session cookie is `overleaf_session2` on `www.overleaf.com` and `overleaf.sid` on Community Edition, so do not hardcode a name. Add the same field to `auth_status` so an agent can tell the user how long the session has left. That is a result-shape change: `outputSchema` per the Conventions, and a CHANGELOG entry.
+- **Scheduling belongs to the operating system.** Document a daily `launchd` agent (macOS), `cron` entry (Linux), and Task Scheduler task (Windows) in `docs/configuration.md`. The examples must use the absolute path to a Node 20+ binary: schedulers do not source login shells, and the maintainer's own machine has a v16 default `node`. Any interval under five days works; daily leaves four days of slack for a laptop that was asleep. A keepalive cannot resurrect a session that has already lapsed, so the documentation says plainly that a machine that is off for more than five days still needs `login`.
+- **Concurrency with a running server is already safe.** `mergeSetCookies` reloads the jar under the advisory lock before writing, so a keepalive that fires while a client has the server open cannot clobber a refresh in either direction. Say so in the docs rather than adding a mutex.
+- **Fix the Netscape serializer while here.** `cookieToNetscape` in `src/http/cookies.ts` derives the include-subdomains column from a leading dot that tough-cookie has already stripped, so it always writes `FALSE`. `parseNetscapeCookies` ignores that column and tough-cookie treats any cookie with a `domain` as a domain cookie, which is why the server itself works, but curl and every other Netscape reader treat the cookie as host-only and will not send it to `www.overleaf.com`. Derive the column from `cookie.hostOnly` instead. Nothing changes for existing installs, since the server is the jar's only writer.
+
 ### Tasks
 
 - [ ] Streaming `gitBlobHash` helper plus unit tests against `git hash-object` fixtures (text, binary, empty file).
@@ -309,6 +327,11 @@ Keep `manage_entity` and `upload_file` exactly as they are underneath; every too
 - [ ] Fault-injection tests: fail upload N of M; assert no deletes ran and `remaining` is correct; assert resume completes.
 - [ ] Drift test: mutate a remote doc between `plan_sync` and `sync_directory`; assert `REMOTE_DRIFT`.
 - [ ] Progress notifications (`notifications/progress`) per file when the client supplies a progress token.
+- [ ] `keepalive` in `src/cli-command.ts` and `src/cli.ts`: bootstrap through `OverleafRuntime.create`, print `{ refreshed, baseUrl, sessionExpiresAt, userId? }`, exit 1 with the normalized error on `AUTH_EXPIRED`; `renderHelp` lists it.
+- [ ] `sessionExpiresAt` on `auth_status`, with `outputSchema`, from the earliest finite expiry among the cookies sent with `GET /project`.
+- [ ] `cookieToNetscape` include-subdomains column from `hostOnly`; round-trip test in `test/http/cookies.test.ts`: a `Set-Cookie` with `Domain=.overleaf.test` serializes with `TRUE` and loads back as a cookie that `getCookieString` sends to `www.overleaf.test`.
+- [ ] Command tests with a fake fetcher: a 200 carrying a rolled `Set-Cookie` prints `sessionExpiresAt` equal to the new expiry and the jar on disk carries it; a redirect to `/login` exits 1 with `AUTH_EXPIRED` JSON on stderr and nothing on stdout; a 200 without the CSRF meta tag is `AUTH_EXPIRED` as well.
+- [ ] Documentation: a "Keeping the session alive" section in `docs/configuration.md` (the five-day rolling behaviour, scheduler examples with an absolute Node path); a `docs/install.md` troubleshooting entry that a client reporting only "Connection closed" or "server exited" at startup usually means an expired session; the README's "Sign in once" step qualified as once, plus again after any five idle days unless a keepalive is scheduled.
 
 ### Acceptance
 
@@ -316,6 +339,9 @@ Keep `manage_entity` and `upload_file` exactly as they are underneath; every too
 - An induced mid-sync failure never deletes and is resumable with the same `planToken`.
 - A concurrent web-UI edit between plan and sync yields `REMOTE_DRIFT` (or one file's `REVISION_CONFLICT`) with zero changes applied and never lost text.
 - `mirror` without a correct `confirmDeleteCount` returns `CONFIRMATION_MISMATCH`.
+- With a valid session and a daily keepalive scheduled, fourteen days without any MCP use end with no `login` required, and each run's `sessionExpiresAt` lies about five days after that run.
+- `keepalive` against a dead session exits 1 with `AUTH_EXPIRED` on stderr and prints nothing on stdout; against a live session it exits 0 and `auth_status` reports the same `sessionExpiresAt`.
+- `curl -b <jar> https://www.overleaf.com/project` returns 200 with a jar written by this release, where a jar written by 0.2.1 redirects to `/login`.
 
 ---
 
@@ -490,6 +516,7 @@ Keep the honesty pattern: update the "never follows `\input`" sentence to say ex
 
 - **v0.1.3 first** because it was zero-risk and unblocked correct use of everything that existed. Two of its items were one-line changes with the best payoff-to-effort ratio in this document: surfacing `rootDocPath` in `get_project_tree` and correcting `upload_file`'s `destructiveHint`.
 - **v0.2.0 before v0.3.0** even though sync produced more individual tool calls: the lifecycle gap was a **hard stop** that pulled a human into the loop mid-task, while the sync friction was merely tedious. Fix what blocks autonomous use before what is merely inefficient. The trash-first design is not only safer for agents; it is what lets v1.0.0's smoke test create and dispose of projects without a permanent delete anywhere in the automated path.
+- **Session keepalive rides with v0.3.0** rather than waiting for hardening: it is a CLI-only change with no tool surface, it removes the one failure that presents as a dead server instead of a typed error, and bulk sync driven by a scheduler or a long-running agent is exactly the workload that outlives a five-day session.
 - **v0.4.0 before v0.5.0:** compile ergonomics close a known competitor gap cheaply; `\input` flattening is the most novel but also the most complex item, and can slip without hurting the core zero-to-PDF story.
 - **Annotations and `outputSchema` are not deferred to 1.0.** Add them to every new tool as it ships; v1.0.0 only back-fills and adds the protocol features (elicitation, resources, pagination decisions, progress) that need cross-cutting work.
 
