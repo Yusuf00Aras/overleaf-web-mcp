@@ -55,6 +55,33 @@ describe('authenticated HTTP client', () => {
     })
   })
 
+  test('maps HTTP 429 to a retryable RATE_LIMITED error carrying the Retry-After hint', async () => {
+    const client = new OverleafHttpClient({
+      baseUrl: 'https://overleaf.test',
+      jar: new CookieJar(),
+      fetcher: async () =>
+        new Response('slow down', { status: 429, headers: { 'retry-after': '30' } }),
+    })
+
+    await expect(client.postJson('/project/new/upload')).rejects.toMatchObject({
+      code: 'RATE_LIMITED',
+      retryable: true,
+      details: { status: 429, path: '/project/new/upload', retryAfterMs: 30_000 },
+    })
+  })
+
+  test('omits retryAfterMs when Overleaf sends no usable Retry-After header', async () => {
+    const client = new OverleafHttpClient({
+      baseUrl: 'https://overleaf.test',
+      jar: new CookieJar(),
+      fetcher: async () => new Response('slow down', { status: 429 }),
+    })
+
+    const error = await client.postJson('/project/new').catch((caught: unknown) => caught)
+    expect(error).toMatchObject({ code: 'RATE_LIMITED', details: { status: 429 } })
+    expect((error as { details: Record<string, unknown> }).details).not.toHaveProperty('retryAfterMs')
+  })
+
   test('ignores error bodies that are free text rather than a code', async () => {
     const client = new OverleafHttpClient({
       baseUrl: 'https://overleaf.test',

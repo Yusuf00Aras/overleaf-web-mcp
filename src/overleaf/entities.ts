@@ -197,7 +197,7 @@ export class EntitiesApi {
         }
         if (normalizeProjectPath(input.confirmPath) !== normalized || input.confirmPath !== input.path) {
           throw new McpError(
-            'INVALID_ARGUMENT',
+            'CONFIRMATION_MISMATCH',
             'confirmPath must exactly match path before an entity can be deleted.'
           )
         }

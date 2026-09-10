@@ -49,7 +49,7 @@ repeats this notice.
   automatically.
 - Explicit tracked writes never fall back to untracked writes. They require an authenticated user
   id, while `trackChangesActive` separately reports the project state observed at connection time.
-- `manage_entity` deletion requires `confirmPath` to exactly equal `path`.
+- `manage_entity` deletion requires `confirmPath` to exactly equal `path`, else `CONFIRMATION_MISMATCH`.
 - `get_project_tree` reports `hash` as a git blob hash, `sha1("blob " + byteLength + "\0" +
   content)`, which is exactly what `git hash-object <file>` prints. Plain `sha1sum` never matches.
   The hash is present only on binary `file` entities; Overleaf stores no content hash for `doc`
@@ -79,7 +79,9 @@ Every failure is returned as JSON with `code`, `message`, `retryable`, and optio
 | `OUTCOME_UNKNOWN` | A write timed out and the live document could not be observed afterwards. | Read the document before doing anything else; do not assume either outcome. |
 | `COMPILE_FAILED` | Overleaf finished the compile with a status other than success. `details.result.status` carries the status. | Inspect the status; fix LaTeX errors or wait if the account was rate-limited. |
 | `PARTIAL_CLEANUP` | A multi-step operation applied some steps and could not undo them all. `details` says what remains. | Inspect the project and finish the cleanup by hand. |
-| `INVALID_ARGUMENT` | The call was malformed, a confirmation value did not match, a path was invalid, or Overleaf rejected an upload name. `details.overleafError` may carry Overleaf's short reason code. | Fix the arguments. |
+| `INVALID_ARGUMENT` | The call was malformed, a path was invalid, an entity had the wrong type, or Overleaf rejected a name. `details.overleafError` may carry Overleaf's short reason code. | Fix the arguments. |
+| `CONFIRMATION_MISMATCH` | A confirm-by-value parameter (`confirmPath`, `confirmName`) did not equal the value it must repeat exactly. Nothing was changed. | Re-read the path or project name and pass it back verbatim, after confirming with the user. |
+| `RATE_LIMITED` | Overleaf answered HTTP 429, most often on project creation or zip import. `details.retryAfterMs` carries Overleaf's hint when it sent one. Nothing was applied. | Wait at least that long, then try once more. |
 | `REMOTE_ERROR` | Anything else Overleaf returned or a network failure. `details.status` carries the HTTP status when there is one. | Retry once if `retryable` is `true`; otherwise report it. |
 
 ## Limits

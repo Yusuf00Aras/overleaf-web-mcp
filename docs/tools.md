@@ -104,7 +104,7 @@ Create a folder, or rename, move, or delete an existing document, file, or folde
 | `path` | yes | For `create_folder`, the folder to create; otherwise the entity to act on |
 | `newName` | for `rename` | New name without slashes |
 | `destinationFolderPath` | for `move` | Target folder; `""` is the project root |
-| `confirmPath` | for `delete` | Must equal `path` exactly |
+| `confirmPath` | for `delete` | Must equal `path` exactly, else `CONFIRMATION_MISMATCH` |
 
 Returns the `action`, the affected entity `id` (or the created folder), and `trackChangesActive`.
 Deleting a folder removes everything inside it.

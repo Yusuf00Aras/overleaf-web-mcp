@@ -76,7 +76,7 @@ describe('entity API', () => {
         path: 'chapters/old.tex',
         confirmPath: 'old.tex',
       })
-    ).rejects.toMatchObject({ code: 'INVALID_ARGUMENT' })
+    ).rejects.toMatchObject({ code: 'CONFIRMATION_MISMATCH' })
     expect(http.deleteJson).not.toHaveBeenCalled()
 
     const result = await api.manageEntity('project', {
