@@ -93,6 +93,30 @@ describe('MCP server', () => {
     await server.close()
   })
 
+  test('validates auth_status structuredContent against its output schema over the transport', async () => {
+    const runtime = fakeRuntime()
+    const status = {
+      authenticated: true,
+      baseUrl: 'https://overleaf.test',
+      userId: 'user',
+      projectCount: 3,
+      sessionExpiresAt: '2026-09-19T00:00:00.000Z',
+      permissionsUnchecked: false,
+      socketPresenceNotice: 'notice',
+    }
+    runtime.authStatus.mockResolvedValue(status)
+    const server = createMcpServer(runtime)
+    const client = new Client({ name: 'smoke-client', version: '1.0.0' })
+    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair()
+    await Promise.all([server.connect(serverTransport), client.connect(clientTransport)])
+
+    const result = await client.callTool({ name: 'auth_status', arguments: {} })
+    expect(result.isError).toBeFalsy()
+    expect(result.structuredContent).toEqual(status)
+    await client.close()
+    await server.close()
+  })
+
   test('sends bounded usage instructions in the initialize response', async () => {
     const { server, client } = await connectedPair()
     const instructions = client.getInstructions()

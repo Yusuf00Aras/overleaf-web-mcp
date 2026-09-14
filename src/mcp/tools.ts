@@ -49,7 +49,7 @@ export const TOOL_NAMES = [
 ] as const
 
 export interface OverleafToolRuntime {
-  authStatus(): Promise<unknown>
+  authStatus(): Promise<Record<string, unknown>>
   account: Pick<AccountApi, 'listProjects'>
   projects: Pick<
     ProjectsApi,
@@ -160,10 +160,21 @@ export function registerOverleafTools(server: ToolRegistrar, runtime: OverleafTo
   server.registerTool(
     'auth_status',
     {
-      description: 'Verify the saved Overleaf web session without exposing cookies.',
+      description:
+        'Verify the saved Overleaf web session without exposing cookies. sessionExpiresAt is when the session lapses unless a request refreshes it first; Overleaf sessions last five days from their last use, and the CLI command `overleaf-web-mcp keepalive` can be scheduled to refresh them.',
+      outputSchema: {
+        authenticated: z.literal(true),
+        baseUrl: z.string(),
+        userId: z.string().optional(),
+        projectCount: z.number().int().nonnegative(),
+        sessionExpiresAt: z.string().optional(),
+        permissionsUnchecked: z.boolean(),
+        warning: z.string().optional(),
+        socketPresenceNotice: z.string(),
+      },
       annotations: { readOnlyHint: true },
     },
-    handler(async () => await runtime.authStatus())
+    structured(async () => await runtime.authStatus())
   )
   server.registerTool(
     'list_projects',

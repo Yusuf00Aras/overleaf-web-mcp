@@ -71,6 +71,7 @@ describe('runtime bootstrap', () => {
       userId: 'user',
       projectCount: 1,
       baseUrl: 'https://overleaf.test',
+      sessionExpiresAt: '2038-01-19T03:14:07.000Z',
     })
     await runtime.close()
   })

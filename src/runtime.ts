@@ -178,16 +178,20 @@ export class OverleafRuntime implements OverleafToolRuntime {
     baseUrl: string
     userId?: string
     projectCount: number
+    /** When the session lapses unless a request refreshes it first; absent if no cookie has a deadline. */
+    sessionExpiresAt?: string
     permissionsUnchecked: boolean
     warning?: string
     socketPresenceNotice: string
   }> {
     const projectCount = await this.account.countProjects()
+    const sessionExpiresAt = await this.cookieStore.sessionExpiresAt(`${this.config.baseUrl}/project`)
     return {
       authenticated: true,
       baseUrl: this.config.baseUrl,
       ...(this.userId === undefined ? {} : { userId: this.userId }),
       projectCount,
+      ...(sessionExpiresAt === undefined ? {} : { sessionExpiresAt }),
       permissionsUnchecked: this.cookieStore.permissions.permissionsUnchecked,
       ...(this.cookieStore.permissions.warning === undefined
         ? {}
