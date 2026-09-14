@@ -39,12 +39,13 @@ Each stage assumes the previous one shipped. Tool names follow the existing snak
 | --- | --- | :---: | --- |
 | v0.1.3 | Documentation, metadata, small additive fixes | 0 | Behaviour that had to be reverse-engineered |
 | v0.2.0 | Project lifecycle | 5 | No way to create, rename, trash, or configure a project |
-| v0.3.0 | Bulk and sync; session keepalive | 5 | 24 one-at-a-time calls to sync one folder; a saved session that dies after 5 idle days |
-| v0.4.0 | Compile and build ergonomics | 2 | Success inferred from counters; no PDF or log access |
-| v0.5.0 | Multi-file documents | 1 | Section tools stop at `\input` boundaries |
+| v0.3.0 | Session keepalive | 0 | A saved session that dies after five idle days and presents as a dead server |
+| v0.4.0 | Bulk and sync | 3, then 2 | 24 one-at-a-time calls to sync one folder |
+| v0.5.0 | Compile and build ergonomics | 2 | Success inferred from counters; no PDF or log access |
+| v0.6.0 | Multi-file documents | 1 | Section tools stop at `\input` boundaries |
 | v1.0.0 | Hardening | 0 | Failure modes that are not yet legible |
 
-**v0.1.3 shipped on 1 September 2026**, followed the same day by **v0.1.4**, a documentation release: a human-first README, the documentation site at <https://mhmdaskari.github.io/overleaf-web-mcp/>, and usage instructions sent to MCP clients at connect time. **v0.2.0 shipped on 10 September 2026** with the five project lifecycle tools, filtered `list_projects`, and the `RATE_LIMITED` and `CONFIRMATION_MISMATCH` error codes. See the [changelog](https://github.com/mhmdaskari/overleaf-web-mcp/blob/main/CHANGELOG.md) for what landed.
+**v0.1.3 shipped on 1 September 2026**, followed the same day by **v0.1.4**, a documentation release: a human-first README, the documentation site at <https://mhmdaskari.github.io/overleaf-web-mcp/>, and usage instructions sent to MCP clients at connect time. **v0.2.0 shipped on 10 September 2026** with the five project lifecycle tools, filtered `list_projects`, and the `RATE_LIMITED` and `CONFIRMATION_MISMATCH` error codes, followed the same day by **v0.2.1**, a documentation patch. **v0.3.0 shipped on 14 September 2026** with the `keepalive` command, `sessionExpiresAt` on `auth_status`, and a cookie-jar fix that persists the session deadline. See the [changelog](https://github.com/mhmdaskari/overleaf-web-mcp/blob/main/CHANGELOG.md) for what landed.
 
 After v1.0.0 the server would register 32 tools (24 today). Every tool description costs the MCP
 client context on every turn, so the lifecycle stage below deliberately reuses the
@@ -54,7 +55,7 @@ client context on every turn, so the lifecycle stage below deliberately reuses t
 
 - **`manage_entity`'s `confirmPath === path` requirement on delete.** It caught nothing dangerous in the session, but it is the right shape for a destructive action, and later stages reuse it (`confirmName` on project trash/delete, a delete-count confirmation on mirror sync).
 - **`upload_file` overwrites in place by path**, keeping the same `entity_id` across re-uploads. This is what made replacing `main.tex` wholesale possible without a `read_file` → revision → `write_file` round trip.
-- **`get_sections` is honest about its own limits.** Its description states outright that it never follows `\input`/`\include`. Keep this practice when multi-file support lands in v0.5.0.
+- **`get_sections` is honest about its own limits.** Its description states outright that it never follows `\input`/`\include`. Keep this practice when multi-file support lands in v0.6.0.
 - **`write_file` requiring a `revision` from a prior `read_file`** is the right default against blind clobbers of text a human might be editing concurrently.
 - **the error model already exists.** `McpError` carries a typed `code`, a `retryable` flag, and structured `details`. v1.0.0 should extend this, not replace it.
 - **writes are never retried automatically.** The README documents that a timed-out write is observed, never re-submitted. Every bulk tool below must inherit that invariant.
@@ -68,7 +69,7 @@ The code moves on between releases. Confirm the following before touching anythi
 what you find:
 
 - [ ] `npm view overleaf-web-mcp version` and `git tag` agree with `package.json` and
-      `SERVER_VERSION` in `src/version.ts`. Current release: `0.2.1`.
+      `SERVER_VERSION` in `src/version.ts`. Current release: `0.3.0`.
 - [ ] `TOOL_NAMES` in `src/mcp/tools.ts` lists the 24 registered tools: `auth_status`,
       `list_projects`, `create_project`, `clone_project`, `import_project_zip`, `manage_project`,
       `update_project_settings`, `get_project_tree`, `read_file`, `write_file`, `create_file`,
@@ -94,7 +95,7 @@ what you find:
 
 1. **Document the hash field format precisely.** Comparing `get_project_tree`'s `hash` against plain `sha1sum` produced 9 false "differs" out of 9 real matches. The actual format is a **git blob hash**: `sha1("blob " + byteLength + "\0" + content)`, i.e. exactly `git hash-object <file>`. This is confirmed in Overleaf's `FileHashManager.mjs`. State the formula wherever a `hash` field appears.
 
-   `hash` exists **only on binary `file` entities** (Overleaf's `fileRefs`). `src/overleaf/tree.ts` copies it for `fileRefs` and for nothing else, and Overleaf does not store a content hash for `doc` entities in the tree at all. So the hash workflow covers figures, PDFs, and other binaries; `.tex`, `.bib`, and `.bst` documents can only be compared by reading their content. Document this alongside the formula, because it changes the design of `plan_sync` in v0.3.0.
+   `hash` exists **only on binary `file` entities** (Overleaf's `fileRefs`). `src/overleaf/tree.ts` copies it for `fileRefs` and for nothing else, and Overleaf does not store a content hash for `doc` entities in the tree at all. So the hash workflow covers figures, PDFs, and other binaries; `.tex`, `.bib`, and `.bst` documents can only be compared by reading their content. Document this alongside the formula, because it changes the design of `plan_sync` in v0.4.0.
 
 2. **Document `upload_file`'s overwrite semantics, and fix its annotation.** The current description ("Upload a local binary file into an Overleaf project folder") undersells what it does. Overleaf's upload handler (`FileSystemImportManager.addEntity` → `upsertDoc` / `upsertFile`) replaces an existing entity at the same path in place; otherwise it creates one. Document:
 
@@ -120,7 +121,7 @@ what you find:
    | Replace a large text file safely | `write_file` with `localPath` | yes | optional | disk |
    | Replace a binary, or push text when nobody else is editing | `upload_file` | no | never | disk |
 
-6. **Include a worked example of the hash-comparison workflow** (loop local files → `git hash-object` → compare to `get_project_tree` `hash` → upload only what differs), with the caveat from item 1 that it applies to binaries only. `plan_sync` formalises this in v0.3.0; until then, document the manual version.
+6. **Include a worked example of the hash-comparison workflow** (loop local files → `git hash-object` → compare to `get_project_tree` `hash` → upload only what differs), with the caveat from item 1 that it applies to binaries only. `plan_sync` formalises this in v0.4.0; until then, document the manual version.
 
 7. **expose the project's root document now.** The `joinProject` payload the server already receives declares `rootDoc_id` (see `JoinProjectData` in `src/protocol/project-connection.ts`); Overleaf also sends `compiler`, `imageName`, and `spellCheckLanguage` in the same payload. The server discards all of them. Surface `rootDocPath`, `compiler`, and `imageName` in `get_project_tree`'s result, and make `compile_project.rootFilePath` optional, defaulting to the project's root doc and failing with `INVALID_ARGUMENT` only when neither is set. In the session the real manuscript lived in `0_main.tex` while Overleaf's root was a 13-line stub `main.tex`; one field in the tree response would have shown that on the first call. Also reword `compile_project`'s description, which currently leaks the internal parameter name `rootDoc_id`.
 
@@ -184,7 +185,7 @@ clone_project({ sourceProjectId: string, name: string })
 
 import_project_zip({ localZipPath: string, name?: string })
   → { projectId, name, url }
-  // One call from "folder on disk" to "project on Overleaf"; v0.3.0's sync covers later updates.
+  // One call from "folder on disk" to "project on Overleaf"; v0.4.0's sync covers later updates.
   // Overleaf rate-limits this endpoint: HTTP 429 surfaces as RATE_LIMITED with retryAfterMs.
 
 manage_project({ projectId: string,
@@ -232,7 +233,43 @@ update_project_settings({ projectId: string, rootFilePath?: string,
 
 ---
 
-## v0.3.0 — Bulk and sync operations, and session keepalive
+## v0.3.0 — Session keepalive (shipped)
+
+**Motivation:** on 10 September 2026 the server failed to start in Claude Code with nothing more than "Connection closed". The saved session had expired: `serve` bootstraps `GET /project` before it answers `initialize`, so an expired session exits with `AUTH_EXPIRED` on stderr and the client reports a dead process, not an error a person can read. Checked the same day against `www.overleaf.com`: `overleaf_session2` is issued with `Max-Age=432000`, five days (Overleaf's default `cookieSessionLength`, which is also how long the server keeps the session), and **every response re-issues the cookie with a fresh five-day expiry** (express-session's `rolling` option). The HTTP client already merges refreshed `Set-Cookie` headers into the jar through `CookieStore.mergeSetCookies`, so a session used at least once every five days never expires, and one left alone for five days is gone. Nothing client-side can lengthen that: editing the expiry in `cookies.txt` only keeps sending a cookie the server has already forgotten. The problem is the gap between two uses, and a scheduled request closes it.
+
+```bash
+overleaf-web-mcp keepalive
+# stdout, exit 0:  { "refreshed": true, "baseUrl": "...", "sessionExpiresAt": "<ISO 8601>", "userId"?: "..." }
+# stderr, exit 1:  the normalized McpError JSON (AUTH_EXPIRED when the session is already dead)
+```
+
+**Design decisions:**
+
+- **A CLI subcommand, not an MCP tool.** A tool runs only while a client has the server open, which is exactly when the session is already being refreshed. `keepalive` runs the existing startup bootstrap (`OverleafRuntime.create`: `GET /project`, CSRF check, cookie merge), reports, and exits. It reuses the `main().catch` error path in `src/cli.ts`, so `AUTH_EXPIRED` lands on stderr as JSON and the exit code is non-zero for a scheduler to alert on. On that path Overleaf's redirect hands out an anonymous session that replaces the dead cookie in the jar; that is harmless, the old one was already rejected, but it must never be reported as `refreshed: true`.
+- **`sessionExpiresAt` is read from the jar after the merge, never from a cookie value.** Report the earliest finite expiry among the cookies the jar would send with `GET /project`; the session cookie is `overleaf_session2` on `www.overleaf.com` and `overleaf.sid` on Community Edition, so do not hardcode a name. Add the same field to `auth_status` so an agent can tell the user how long the session has left. That is a result-shape change: `outputSchema` per the Conventions, and a CHANGELOG entry.
+- **Scheduling belongs to the operating system.** Document a daily `launchd` agent (macOS), `cron` entry (Linux), and Task Scheduler task (Windows) in `docs/configuration.md`. The examples must use the absolute path to a Node 20+ binary: schedulers do not source login shells, and the maintainer's own machine has a v16 default `node`. Any interval under five days works; daily leaves four days of slack for a laptop that was asleep. A keepalive cannot resurrect a session that has already lapsed, so the documentation says plainly that a machine that is off for more than five days still needs `login`.
+- **Concurrency with a running server is already safe.** `mergeSetCookies` reloads the jar under the advisory lock before writing, so a keepalive that fires while a client has the server open cannot clobber a refresh in either direction. Say so in the docs rather than adding a mutex.
+- **Fix the Netscape serializer while here.** `cookieToNetscape` in `src/http/cookies.ts` derives the include-subdomains column from a leading dot that tough-cookie has already stripped, so it always writes `FALSE`. `parseNetscapeCookies` ignores that column and tough-cookie treats any cookie with a `domain` as a domain cookie, which is why the server itself works, but curl and every other Netscape reader treat the cookie as host-only and will not send it to `www.overleaf.com`. Derive the column from `cookie.hostOnly` instead. Implementation found a second defect in the same function: the expires column came from `cookie.expires`, which tough-cookie leaves as `Infinity` for a `Max-Age` cookie, so the session cookie was written with expiry `0` and its five-day deadline was discarded on every save; the column now comes from `expiryTime()`, which folds in `Max-Age`, and `sessionExpiresAt` reads the same method. The parser deliberately keeps ignoring the include-subdomains column: every jar written before 0.3.0 recorded `FALSE` for the session cookie, and honouring it would load that cookie as host-only and stop sending it to `www.overleaf.com`, breaking existing installs. Those jars load exactly as before and are rewritten correctly on the first refreshed response.
+
+This stage was split out of the bulk-sync work, now v0.4.0, so the fix could ship first: it is CLI-only with no tool surface, and it removes the one failure that presents as a dead server instead of a typed error.
+
+### Tasks
+
+- [x] `keepalive` in `src/cli-command.ts` and `src/cli.ts`: bootstrap through `OverleafRuntime.create`, print `{ refreshed, baseUrl, sessionExpiresAt, userId? }`, exit 1 with the normalized error on `AUTH_EXPIRED`; `renderHelp` lists it.
+- [x] `sessionExpiresAt` on `auth_status`, with `outputSchema`, from the earliest finite expiry among the cookies sent with `GET /project`.
+- [x] `cookieToNetscape` include-subdomains column from `hostOnly`; round-trip test in `test/http/cookies.test.ts`: a `Set-Cookie` with `Domain=.overleaf.test` serializes with `TRUE` and loads back as a cookie that `getCookieString` sends to `www.overleaf.test`.
+- [x] Command tests with a fake fetcher: a 200 carrying a rolled `Set-Cookie` prints `sessionExpiresAt` equal to the new expiry and the jar on disk carries it; a redirect to `/login` exits 1 with `AUTH_EXPIRED` JSON on stderr and nothing on stdout; a 200 without the CSRF meta tag is `AUTH_EXPIRED` as well.
+- [x] Documentation: a "Keeping the session alive" section in `docs/configuration.md` (the five-day rolling behaviour, scheduler examples with an absolute Node path); a `docs/install.md` troubleshooting entry that a client reporting only "Connection closed" or "server exited" at startup usually means an expired session; the README's "Sign in once" step qualified as once, plus again after any five idle days unless a keepalive is scheduled.
+
+### Acceptance
+
+- With a valid session and a daily keepalive scheduled, fourteen days without any MCP use end with no `login` required, and each run's `sessionExpiresAt` lies about five days after that run.
+- `keepalive` against a dead session exits 1 with `AUTH_EXPIRED` on stderr and prints nothing on stdout; against a live session it exits 0 and `auth_status` reports the same `sessionExpiresAt`.
+- `curl -b <jar> https://www.overleaf.com/project` returns 200 with a jar written by this release, where a jar written by 0.2.1 redirects to `/login`.
+
+---
+
+## v0.4.0 — Bulk and sync operations
 
 **Motivation:** almost everything after authentication in the session was one-file-at-a-time: 3 text overwrites, 1 binary upload, and **20 individual `manage_entity` delete calls**, each needing its own `confirmPath`. Before that, a hand-rolled diff over 9 local figures established that none of them needed re-uploading. That comparison is generically useful and should not be reinvented per caller.
 
@@ -301,23 +338,9 @@ download_project_zip({ projectId: string, localPath: string, overwrite?: boolean
 
 Keep `manage_entity` and `upload_file` exactly as they are underneath; every tool here is a composition of existing primitives.
 
-### Session keepalive (CLI command, no new tool)
+### Scope of the first release
 
-**Motivation:** on 10 September 2026 the server failed to start in Claude Code with nothing more than "Connection closed". The saved session had expired: `serve` bootstraps `GET /project` before it answers `initialize`, so an expired session exits with `AUTH_EXPIRED` on stderr and the client reports a dead process, not an error a person can read. Checked the same day against `www.overleaf.com`: `overleaf_session2` is issued with `Max-Age=432000`, five days (Overleaf's default `cookieSessionLength`, which is also how long the server keeps the session), and **every response re-issues the cookie with a fresh five-day expiry** (express-session's `rolling` option). The HTTP client already merges refreshed `Set-Cookie` headers into the jar through `CookieStore.mergeSetCookies`, so a session used at least once every five days never expires, and one left alone for five days is gone. Nothing client-side can lengthen that: editing the expiry in `cookies.txt` only keeps sending a cookie the server has already forgotten. The problem is the gap between two uses, and a scheduled request closes it.
-
-```bash
-overleaf-web-mcp keepalive
-# stdout, exit 0:  { "refreshed": true, "baseUrl": "...", "sessionExpiresAt": "<ISO 8601>", "userId"?: "..." }
-# stderr, exit 1:  the normalized McpError JSON (AUTH_EXPIRED when the session is already dead)
-```
-
-**Design decisions:**
-
-- **A CLI subcommand, not an MCP tool.** A tool runs only while a client has the server open, which is exactly when the session is already being refreshed. `keepalive` runs the existing startup bootstrap (`OverleafRuntime.create`: `GET /project`, CSRF check, cookie merge), reports, and exits. It reuses the `main().catch` error path in `src/cli.ts`, so `AUTH_EXPIRED` lands on stderr as JSON and the exit code is non-zero for a scheduler to alert on. On that path Overleaf's redirect hands out an anonymous session that replaces the dead cookie in the jar; that is harmless, the old one was already rejected, but it must never be reported as `refreshed: true`.
-- **`sessionExpiresAt` is read from the jar after the merge, never from a cookie value.** Report the earliest finite expiry among the cookies the jar would send with `GET /project`; the session cookie is `overleaf_session2` on `www.overleaf.com` and `overleaf.sid` on Community Edition, so do not hardcode a name. Add the same field to `auth_status` so an agent can tell the user how long the session has left. That is a result-shape change: `outputSchema` per the Conventions, and a CHANGELOG entry.
-- **Scheduling belongs to the operating system.** Document a daily `launchd` agent (macOS), `cron` entry (Linux), and Task Scheduler task (Windows) in `docs/configuration.md`. The examples must use the absolute path to a Node 20+ binary: schedulers do not source login shells, and the maintainer's own machine has a v16 default `node`. Any interval under five days works; daily leaves four days of slack for a laptop that was asleep. A keepalive cannot resurrect a session that has already lapsed, so the documentation says plainly that a machine that is off for more than five days still needs `login`.
-- **Concurrency with a running server is already safe.** `mergeSetCookies` reloads the jar under the advisory lock before writing, so a keepalive that fires while a client has the server open cannot clobber a refresh in either direction. Say so in the docs rather than adding a mutex.
-- **Fix the Netscape serializer while here.** `cookieToNetscape` in `src/http/cookies.ts` derives the include-subdomains column from a leading dot that tough-cookie has already stripped, so it always writes `FALSE`. `parseNetscapeCookies` ignores that column and tough-cookie treats any cookie with a `domain` as a domain cookie, which is why the server itself works, but curl and every other Netscape reader treat the cookie as host-only and will not send it to `www.overleaf.com`. Derive the column from `cookie.hostOnly` instead. Nothing changes for existing installs, since the server is the jar's only writer.
+The first release of this stage ships `plan_sync`, `sync_directory`, and `delete_entities`: the two-call workflow the acceptance criteria name, plus the batched delete that collapses the session's 20 calls into one. `batch_upload` and `download_project_zip` follow in a point release once the planner and its ignore rules have had real-world use, so their descriptions below stand but their tasks are not part of the first cut.
 
 ### Tasks
 
@@ -327,11 +350,6 @@ overleaf-web-mcp keepalive
 - [ ] Fault-injection tests: fail upload N of M; assert no deletes ran and `remaining` is correct; assert resume completes.
 - [ ] Drift test: mutate a remote doc between `plan_sync` and `sync_directory`; assert `REMOTE_DRIFT`.
 - [ ] Progress notifications (`notifications/progress`) per file when the client supplies a progress token.
-- [ ] `keepalive` in `src/cli-command.ts` and `src/cli.ts`: bootstrap through `OverleafRuntime.create`, print `{ refreshed, baseUrl, sessionExpiresAt, userId? }`, exit 1 with the normalized error on `AUTH_EXPIRED`; `renderHelp` lists it.
-- [ ] `sessionExpiresAt` on `auth_status`, with `outputSchema`, from the earliest finite expiry among the cookies sent with `GET /project`.
-- [ ] `cookieToNetscape` include-subdomains column from `hostOnly`; round-trip test in `test/http/cookies.test.ts`: a `Set-Cookie` with `Domain=.overleaf.test` serializes with `TRUE` and loads back as a cookie that `getCookieString` sends to `www.overleaf.test`.
-- [ ] Command tests with a fake fetcher: a 200 carrying a rolled `Set-Cookie` prints `sessionExpiresAt` equal to the new expiry and the jar on disk carries it; a redirect to `/login` exits 1 with `AUTH_EXPIRED` JSON on stderr and nothing on stdout; a 200 without the CSRF meta tag is `AUTH_EXPIRED` as well.
-- [ ] Documentation: a "Keeping the session alive" section in `docs/configuration.md` (the five-day rolling behaviour, scheduler examples with an absolute Node path); a `docs/install.md` troubleshooting entry that a client reporting only "Connection closed" or "server exited" at startup usually means an expired session; the README's "Sign in once" step qualified as once, plus again after any five idle days unless a keepalive is scheduled.
 
 ### Acceptance
 
@@ -339,13 +357,10 @@ overleaf-web-mcp keepalive
 - An induced mid-sync failure never deletes and is resumable with the same `planToken`.
 - A concurrent web-UI edit between plan and sync yields `REMOTE_DRIFT` (or one file's `REVISION_CONFLICT`) with zero changes applied and never lost text.
 - `mirror` without a correct `confirmDeleteCount` returns `CONFIRMATION_MISMATCH`.
-- With a valid session and a daily keepalive scheduled, fourteen days without any MCP use end with no `login` required, and each run's `sessionExpiresAt` lies about five days after that run.
-- `keepalive` against a dead session exits 1 with `AUTH_EXPIRED` on stderr and prints nothing on stdout; against a live session it exits 0 and `auth_status` reports the same `sessionExpiresAt`.
-- `curl -b <jar> https://www.overleaf.com/project` returns 200 with a jar written by this release, where a jar written by 0.2.1 redirects to `/login`.
 
 ---
 
-## v0.4.0 — Compile and build ergonomics
+## v0.5.0 — Compile and build ergonomics
 
 **Motivation:** `compile_project` returns a large JSON blob of build-artifact URLs plus a `stats` object. The session concluded success from `stats["latexmk-errors"] === 0`, never fetched `output.log`, and had no tool to do so. There is also no way to pull the compiled PDF to a local path; `download_file` is for project source entities only.
 
@@ -413,7 +428,7 @@ get_compile_log({ projectId: string, buildId?: string, kind?: "latex" | "bibtex"
 
 ---
 
-## v0.5.0 — Multi-file document support
+## v0.6.0 — Multi-file document support
 
 **Motivation:** `get_sections` / `get_section_content` / `write_section` are explicitly single-file. The project in the session was, until recently, split across `0_main.tex` plus eight `sec: *.tex` files stitched together with `\input`. Plenty of real Overleaf projects stay organised this way permanently, and section tools that stop at `\input` boundaries can only partially help with them.
 
@@ -476,11 +491,11 @@ Keep the honesty pattern: update the "never follows `\input`" sentence to say ex
 | `REMOTE_ERROR` | 0.1.0 | Anything else |
 | `CONFIRMATION_MISMATCH` | v0.2.0 | `confirmPath` / `confirmName` / `confirmDeleteCount` wrong |
 | `RATE_LIMITED` | v0.2.0 | HTTP 429; `details.retryAfterMs` when Overleaf said how long |
-| `REMOTE_DRIFT` | v0.3.0 | Live tree differs from the `planToken` snapshot |
-| `PATH_OUTSIDE_ROOT` | v0.3.0 | Local path escapes `localFolderPath` |
-| `COMPILE_RATE_LIMITED`, `COMPILE_TIMEOUT` | v0.4.0 | Compile throttled by Overleaf; compile timed out |
-| `NO_BUILD`, `BUILD_NOT_FOUND` | v0.4.0 | No compile yet / CLSI output evicted |
-| `INCLUDE_CYCLE`, `INCLUDE_DEPTH_EXCEEDED` | v0.5.0 | `\input` graph problems |
+| `REMOTE_DRIFT` | v0.4.0 | Live tree differs from the `planToken` snapshot |
+| `PATH_OUTSIDE_ROOT` | v0.4.0 | Local path escapes `localFolderPath` |
+| `COMPILE_RATE_LIMITED`, `COMPILE_TIMEOUT` | v0.5.0 | Compile throttled by Overleaf; compile timed out |
+| `NO_BUILD`, `BUILD_NOT_FOUND` | v0.5.0 | No compile yet / CLSI output evicted |
+| `INCLUDE_CYCLE`, `INCLUDE_DEPTH_EXCEEDED` | v0.6.0 | `\input` graph problems |
 | `API_SHAPE_CHANGED` | v1.0.0 | Response no longer matches the `docs/private-api.md` schema (the first draft called this `UNSUPPORTED_API_CHANGE`) |
 | `TRANSIENT_FAILURE` | v1.0.0 | Network or 5xx after bounded backoff on a read was exhausted |
 
@@ -490,7 +505,7 @@ Keep the honesty pattern: update the "never follows `\input`" sentence to say ex
 - [ ] **retry with backoff for reads only.** Bounded exponential backoff (max 3 attempts, jitter) on `retryable: true` failures of GET requests and document joins, never on OT submissions, uploads, or deletes, so the "never re-submitted automatically" guarantee survives and the bulk tools inherit it. Centralise request pacing (configurable minimum interval) to stay conservative on `www.overleaf.com`. Exhausted backoff → `TRANSIENT_FAILURE`.
 - [ ] **do not add cursor pagination to `list_projects`.** Overleaf has no server-side pagination; `/api/project` returns every project and the dashboard paginates in the browser. A cursor would be theatre. v0.2.0's `query`, `limit`, `sort`, and `totalMatched` are the right fix; keep them. (The first draft asked for `cursor` / `nextCursor`; this is the reasoned answer.)
 - [ ] **MCP elicitation** for `manage_project` trash/delete and mirror `sync_directory` when the client advertises the capability; confirm-by-value remains mandatory as the fallback.
-- [ ] **Resources:** `overleaf://project/{id}/tree`, `overleaf://project/{id}/file/{path}`, plus the v0.4.0 output resources.
+- [ ] **Resources:** `overleaf://project/{id}/tree`, `overleaf://project/{id}/file/{path}`, plus the v0.5.0 output resources.
 - [ ] **Progress notifications** for `compile_project`, `sync_directory`, `get_full_document`.
 - [ ] **Back-fill `outputSchema`** on every tool that returns structured data.
 - [ ] **automated smoke test against Community Edition, not `www.overleaf.com`.** A CI job that logs into the public service conflicts with the README's own Terms-of-Service caution and needs a long-lived session cookie stored as a CI secret. Instead run `create_project → update_project_settings → sync_directory → compile_project → download_compile_output → manage_project(trash)` against Overleaf Community Edition in a Docker service container on a pinned image tag. That also pins the private-API version the suite is tested against. Comments and tracked changes are Server Pro features, so the existing env-gated live tests for those stay manual and opt-in.
@@ -515,14 +530,14 @@ Keep the honesty pattern: update the "never follows `\input`" sentence to say ex
 ## Sequencing rationale
 
 - **v0.1.3 first** because it was zero-risk and unblocked correct use of everything that existed. Two of its items were one-line changes with the best payoff-to-effort ratio in this document: surfacing `rootDocPath` in `get_project_tree` and correcting `upload_file`'s `destructiveHint`.
-- **v0.2.0 before v0.3.0** even though sync produced more individual tool calls: the lifecycle gap was a **hard stop** that pulled a human into the loop mid-task, while the sync friction was merely tedious. Fix what blocks autonomous use before what is merely inefficient. The trash-first design is not only safer for agents; it is what lets v1.0.0's smoke test create and dispose of projects without a permanent delete anywhere in the automated path.
-- **Session keepalive rides with v0.3.0** rather than waiting for hardening: it is a CLI-only change with no tool surface, it removes the one failure that presents as a dead server instead of a typed error, and bulk sync driven by a scheduler or a long-running agent is exactly the workload that outlives a five-day session.
-- **v0.4.0 before v0.5.0:** compile ergonomics close a known competitor gap cheaply; `\input` flattening is the most novel but also the most complex item, and can slip without hurting the core zero-to-PDF story.
+- **v0.2.0 before v0.4.0** even though sync produced more individual tool calls: the lifecycle gap was a **hard stop** that pulled a human into the loop mid-task, while the sync friction was merely tedious. Fix what blocks autonomous use before what is merely inefficient. The trash-first design is not only safer for agents; it is what lets v1.0.0's smoke test create and dispose of projects without a permanent delete anywhere in the automated path.
+- **Session keepalive shipped alone as v0.3.0**, ahead of sync rather than with it or after hardening: it is a CLI-only change with no tool surface, it removes the one failure that presents as a dead server instead of a typed error, and bulk sync driven by a scheduler or a long-running agent is exactly the workload that outlives a five-day session.
+- **v0.5.0 before v0.6.0:** compile ergonomics close a known competitor gap cheaply; `\input` flattening is the most novel but also the most complex item, and can slip without hurting the core zero-to-PDF story.
 - **Annotations and `outputSchema` are not deferred to 1.0.** Add them to every new tool as it ships; v1.0.0 only back-fills and adds the protocol features (elicitation, resources, pagination decisions, progress) that need cross-cutting work.
 
 ## Competitive position this roadmap targets
 
-| Capability | v0.2.0 (today) | After roadmap | `@netique/overleaf-mcp` | Git-bridge MCPs |
+| Capability | v0.3.0 (today) | After roadmap | `@netique/overleaf-mcp` | Git-bridge MCPs |
 | --- | :---: | :---: | :---: | :---: |
 | Works on a free plan | ✅ | ✅ | ✅ | ❌ (paid) |
 | Create / clone / import / rename / trash project, set root | ✅ | ✅ | ❌ | partial |

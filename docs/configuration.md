@@ -48,7 +48,80 @@ warning in `auth_status`.
 
 Cookie refreshes received during normal use are merged under an advisory lock and written through
 a protected temporary file followed by an atomic replace. If the session expires, run
-`npx overleaf-web-mcp login` again.
+`npx overleaf-web-mcp login` again; to stop that happening, see the next section.
+
+## Keeping the session alive
+
+Overleaf issues its session cookie with a five-day lifetime and re-issues it, with a fresh five
+days, on every response. The server merges each refreshed cookie into the jar, so a session used
+at least once every five days never expires, and one left untouched for five days is gone for
+good. Nothing on your machine can extend that: editing the expiry in `cookies.txt` only keeps
+sending a cookie Overleaf has already forgotten. What closes the gap is a request every few days.
+
+```bash
+npx overleaf-web-mcp keepalive
+```
+
+The command runs the same startup bootstrap as `serve`, merges the refreshed cookie into the jar,
+prints when the session will now expire, and exits:
+
+```json
+{
+  "refreshed": true,
+  "baseUrl": "https://www.overleaf.com",
+  "sessionExpiresAt": "2026-09-19T22:25:37.520Z",
+  "userId": "..."
+}
+```
+
+Against a session that has already lapsed it exits with status 1, prints the usual error JSON
+(`AUTH_EXPIRED`) to stderr and nothing to stdout, so a scheduler can alert on it. A keepalive
+cannot revive a dead session; a machine that stays off for more than five days still needs
+`login`. `auth_status` reports the same `sessionExpiresAt`, so an assistant can tell you how long
+is left.
+
+Schedule it once a day. Any interval under five days works; daily leaves four days of slack for a
+laptop that was asleep. Schedulers do not source your login shell, so give them the absolute path
+of a Node 20 or newer binary and of the installed package rather than `npx`. With the right Node
+active, `command -v node` and `npm root -g` print the two paths used below; adjust them to yours.
+
+**macOS, `launchd`.** Save as `~/Library/LaunchAgents/com.overleaf-web-mcp.keepalive.plist`, then
+`launchctl load ~/Library/LaunchAgents/com.overleaf-web-mcp.keepalive.plist`.
+
+```xml
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key><string>com.overleaf-web-mcp.keepalive</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/opt/homebrew/bin/node</string>
+    <string>/opt/homebrew/lib/node_modules/overleaf-web-mcp/dist/cli.js</string>
+    <string>keepalive</string>
+  </array>
+  <key>StartCalendarInterval</key>
+  <dict><key>Hour</key><integer>9</integer><key>Minute</key><integer>0</integer></dict>
+  <key>StandardErrorPath</key><string>/tmp/overleaf-web-mcp-keepalive.log</string>
+</dict>
+</plist>
+```
+
+**Linux, `cron`.** Run `crontab -e` and add one line:
+
+```
+0 9 * * * /usr/local/bin/node /usr/local/lib/node_modules/overleaf-web-mcp/dist/cli.js keepalive >/dev/null 2>>"$HOME/.overleaf-web-mcp-keepalive.log"
+```
+
+**Windows, Task Scheduler.** From a Command Prompt:
+
+```
+schtasks /Create /SC DAILY /ST 09:00 /TN "overleaf-web-mcp keepalive" /TR "\"C:\Program Files\nodejs\node.exe\" \"%APPDATA%\npm\node_modules\overleaf-web-mcp\dist\cli.js\" keepalive"
+```
+
+Running a keepalive while an MCP client has the server open is safe. Cookie refreshes are merged
+under the jar's advisory lock, and the jar is re-read under that lock before it is written, so
+neither process can overwrite the other's refresh.
 
 ## Presence
 

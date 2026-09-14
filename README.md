@@ -34,7 +34,7 @@ Once connected, talk to your assistant in plain language. It picks the tools.
 
 You need Node.js 20 or newer, a Chrome-family browser (Chrome, Chromium, Brave, or Edge), and an Overleaf account.
 
-**1. Sign in once.** A dedicated browser window opens. Complete the normal Overleaf login, including SSO or two-factor. Only cookies for the Overleaf origin are saved, to a file only your user can read.
+**1. Sign in once.** A dedicated browser window opens. Complete the normal Overleaf login, including SSO or two-factor. Only cookies for the Overleaf origin are saved, to a file only your user can read. The session lasts five days from its last use, so sign in again after five idle days, or schedule `npx overleaf-web-mcp keepalive` daily to keep it alive (see [configuration](https://mhmdaskari.github.io/overleaf-web-mcp/configuration/#keeping-the-session-alive)).
 
 ```bash
 npx overleaf-web-mcp login
@@ -73,6 +73,37 @@ Client-by-client steps, self-hosted Overleaf, and troubleshooting, including the
 - **Review.** List comment threads with their locations, reply, add a comment anchored to exact text, and resolve or reopen threads.
 - **Follow history.** Poll recent project history with a version cursor to see who changed what.
 
+## Tools
+
+All 24 tools, grouped as in the [tool reference](https://mhmdaskari.github.io/overleaf-web-mcp/tools/), which has every parameter and result. Read-only tools change nothing on Overleaf. Destructive tools can replace or remove existing content, and each one confirms by value before it does.
+
+| Group | Tool | What it does | Annotation |
+| --- | --- | --- | --- |
+| Account | `auth_status` | Verify the saved session and report when it expires | read-only |
+| Account | `list_projects` | List and search projects, newest first | read-only |
+| Project lifecycle | `create_project` | Create a blank or example project | |
+| Project lifecycle | `clone_project` | Copy a project, files and settings included | |
+| Project lifecycle | `import_project_zip` | Create a project from a local `.zip` archive | |
+| Project lifecycle | `manage_project` | Rename, trash, restore, archive, unarchive, or delete a project | destructive |
+| Project lifecycle | `update_project_settings` | Set the root document, TeX engine, TeX Live image, or spell-check language | |
+| Files | `get_project_tree` | Read the file tree with the project's compile settings | read-only |
+| Files | `read_file` | Read a text document and its revision | read-only |
+| Files | `write_file` | Replace a document with a revision-checked, minimal edit | destructive |
+| Files | `create_file` | Create a text document, optionally with content | |
+| Files | `manage_entity` | Create a folder, or rename, move, or delete an entity | destructive |
+| Files | `upload_file` | Upload a local file, replacing whatever is at that path | destructive |
+| Files | `download_file` | Save a document or binary file locally | read-only |
+| Sections | `get_sections` | Parse the section headings of one file | read-only |
+| Sections | `get_section_content` | Read one section's body | read-only |
+| Sections | `write_section` | Replace one section's body, revision-checked | destructive |
+| Compilation | `compile_project` | Compile the project | |
+| Compilation | `stop_compile` | Stop the active compile | destructive |
+| Review | `list_comments` | List review threads with their locations | read-only |
+| Review | `reply_to_comment` | Reply in an existing thread | |
+| Review | `add_comment` | Add a comment anchored to exact text | |
+| Review | `set_comment_status` | Resolve or reopen a thread | destructive |
+| History | `monitor_project_history` | Poll recent project history with a cursor | read-only |
+
 ## How it keeps your project safe
 
 - Text edits require the revision from a prior read and fail with a conflict if the document changed underneath.
@@ -90,7 +121,7 @@ Client-by-client steps, self-hosted Overleaf, and troubleshooting, including the
 | [Using it](https://mhmdaskari.github.io/overleaf-web-mcp/using/) | Example prompts and what happens underneath |
 | [Tool reference](https://mhmdaskari.github.io/overleaf-web-mcp/tools/) | All 24 tools with parameters and results |
 | [Safety model](https://mhmdaskari.github.io/overleaf-web-mcp/safety/) | Revisions, tracked changes, confirmations, error codes |
-| [Configuration](https://mhmdaskari.github.io/overleaf-web-mcp/configuration/) | Environment variables and where the session is stored |
+| [Configuration](https://mhmdaskari.github.io/overleaf-web-mcp/configuration/) | Environment variables, where the session is stored, and keeping it alive |
 | [Internals](https://mhmdaskari.github.io/overleaf-web-mcp/internals/) | Protocol notes, reliability guarantees, related projects |
 | [Roadmap](https://mhmdaskari.github.io/overleaf-web-mcp/roadmap/) and [Changelog](https://mhmdaskari.github.io/overleaf-web-mcp/changelog/) | Where this is going and what changed |
 
