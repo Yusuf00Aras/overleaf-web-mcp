@@ -7,6 +7,7 @@ describe('CLI command routing', () => {
     [[], 'serve'],
     [['serve'], 'serve'],
     [['login'], 'login'],
+    [['keepalive'], 'keepalive'],
     [['--help'], 'help'],
     [['-h'], 'help'],
   ] as const)('maps %j to %s', (argv, expected) => {
@@ -17,8 +18,9 @@ describe('CLI command routing', () => {
     expect(() => parseCliCommand(['unknown'])).toThrow(/login/u)
   })
 
-  test('documents the default server and browser login commands', () => {
+  test('documents the server, browser login, and keepalive commands', () => {
     expect(renderHelp()).toContain('overleaf-web-mcp login')
     expect(renderHelp()).toContain('overleaf-web-mcp serve')
+    expect(renderHelp()).toContain('overleaf-web-mcp keepalive')
   })
 })
