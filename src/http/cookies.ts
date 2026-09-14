@@ -38,6 +38,13 @@ export async function parseNetscapeCookies(text: string): Promise<CookieJar> {
     const line = httpOnly ? originalLine.slice('#HttpOnly_'.length) : originalLine
     const fields = line.split('\t')
     if (fields.length < 7) continue
+    /*
+     * The include-subdomains column is deliberately ignored. Jars written before 0.3.0 always
+     * recorded FALSE, the session cookie included, so honouring it would load that cookie as
+     * host-only and stop sending it to www.overleaf.com, breaking every existing install. Setting
+     * `domain` leaves tough-cookie to treat the cookie as a domain cookie, which is what those
+     * jars have always meant.
+     */
     const [domain, , path, secure, expires, name, ...valueParts] = fields
     if (!domain || !path || !name) continue
     const value = valueParts.join('\t')
@@ -60,14 +67,25 @@ export async function parseNetscapeCookies(text: string): Promise<CookieJar> {
 function cookieToNetscape(cookie: Cookie): string {
   const domain = cookie.domain ?? ''
   const prefix = cookie.httpOnly ? '#HttpOnly_' : ''
-  const includeSubdomains = domain.startsWith('.') ? 'TRUE' : 'FALSE'
+  /*
+   * tough-cookie canonicalizes `domain` without a leading dot, so the dot can never be the source
+   * of the include-subdomains column; `hostOnly` is. Overleaf scopes its session cookie to
+   * `.overleaf.com`, and a reader that takes it as host-only will not send it to `www.overleaf.com`.
+   */
+  const includeSubdomains = cookie.hostOnly === false
+  /*
+   * Overleaf sets the session cookie with Max-Age, and tough-cookie keeps a Max-Age deadline in
+   * `maxAge` plus `creation`, leaving `expires` as 'Infinity'. Reading `expires` here wrote 0 and
+   * discarded the five-day deadline on every save. `expiryTime()` folds both forms together.
+   */
+  const expiryTime = cookie.expiryTime()
   const expires =
-    cookie.expires === 'Infinity' || cookie.expires === undefined || cookie.expires === null
+    expiryTime === undefined || !Number.isFinite(expiryTime)
       ? '0'
-      : String(Math.floor(cookie.expires.getTime() / 1000))
+      : String(Math.floor(expiryTime / 1000))
   return [
-    `${prefix}${domain}`,
-    includeSubdomains,
+    `${prefix}${includeSubdomains ? '.' : ''}${domain}`,
+    includeSubdomains ? 'TRUE' : 'FALSE',
     cookie.path ?? '/',
     cookie.secure ? 'TRUE' : 'FALSE',
     expires,
@@ -185,5 +203,21 @@ export class CookieStore {
     } finally {
       await release?.()
     }
+  }
+
+  /**
+   * Earliest deadline among the cookies the jar would send with a request to `url`, as ISO 8601,
+   * or `undefined` when every one of them is a session cookie with no deadline.
+   *
+   * The session cookie is never matched by name: it is `overleaf_session2` on www.overleaf.com and
+   * `overleaf.sid` on Community Edition. `expiryTime()` rather than `expires`, because Overleaf
+   * sets the cookie with Max-Age and tough-cookie keeps that deadline apart from `expires`.
+   */
+  async sessionExpiresAt(url: string): Promise<string | undefined> {
+    const deadlines = (await this.jar.getCookies(url))
+      .map(cookie => cookie.expiryTime())
+      .filter((time): time is number => time !== undefined && Number.isFinite(time))
+    if (deadlines.length === 0) return undefined
+    return new Date(Math.min(...deadlines)).toISOString()
   }
 }
