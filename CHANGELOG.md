@@ -4,6 +4,51 @@ All notable changes to this project are documented here. This project follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html). Until 1.0.0, tool schemas and
 result shapes may change in a minor or patch release; each such change is listed below.
 
+## [0.3.0] - 2026-09-14
+
+Session keepalive. Overleaf's web session lasts five days from its last use and is refreshed by
+every request, so a saved session that went unused for five days made the server exit at startup
+with `AUTH_EXPIRED` on stderr, which MCP clients surface only as "Connection closed". No tool was
+added or removed; the server still registers 24 tools.
+
+### Added
+
+- **`overleaf-web-mcp keepalive`**, a CLI command that runs the server's startup bootstrap, merges
+  the refreshed session cookie into the jar, prints `refreshed`, `baseUrl`, `sessionExpiresAt`,
+  and `userId`, and exits. Against a dead session it exits with status 1 and the `AUTH_EXPIRED`
+  error on stderr, so a scheduler can alert on it. Daily scheduling with `launchd`, `cron`, and
+  Task Scheduler is documented in the configuration guide.
+- **`auth_status` reports `sessionExpiresAt`**, the earliest deadline among the cookies sent to
+  Overleaf, as ISO 8601. The field is absent when no cookie carries a deadline. `auth_status` now
+  declares an `outputSchema` and returns `structuredContent`; its other fields are unchanged.
+- **A table of all 24 tools in the README**, grouped as in the tool reference, with a test that
+  fails if a registered tool is missing from it.
+
+### Fixed
+
+- **The cookie jar now persists the session deadline.** The Netscape serializer read `expires`,
+  which tough-cookie leaves unset for a `Max-Age` cookie, so the session cookie was written with
+  expiry `0` and its five-day deadline was lost on every save. It now uses `expiryTime()`, which
+  accounts for `Max-Age`. Behaviour was otherwise unaffected, since a cookie without an expiry is
+  still sent; what was missing was any way to persist or report the deadline.
+- **Domain cookies are written with the include-subdomains flag set and a leading dot**, derived
+  from tough-cookie's `hostOnly` rather than from a leading dot it had already stripped. The
+  server read its own jar correctly either way; other Netscape readers, `curl` included, treated
+  the session cookie as host-only and did not send it to `www.overleaf.com`. Jars written by
+  earlier releases keep loading exactly as before.
+
+### Changed
+
+- The initialize instructions mention `sessionExpiresAt` and the keepalive command.
+
+### Documentation
+
+- "Keeping the session alive" in the configuration guide, a troubleshooting entry for a client
+  that reports only "Connection closed" at startup, and a note on the five-day limit in the
+  README's sign-in step.
+- The roadmap makes session keepalive its own shipped stage, moves bulk sync to v0.4.0 with
+  `plan_sync`, `sync_directory`, and `delete_entities` first, and renumbers the later stages.
+
 ## [0.2.1] - 2026-09-10
 
 Documentation only. No tool was added, removed, or changed in schema or result shape; the server
@@ -168,8 +213,9 @@ still registers 19 tools. Planned in [ROADMAP.md](https://github.com/mhmdaskari/
 - First release: browser-assisted session capture, project and file management, revision-checked
   and section-level writing, compilation, and review comments.
 
+[0.3.0]: https://github.com/mhmdaskari/overleaf-web-mcp/releases/tag/v0.3.0
+[0.2.1]: https://github.com/mhmdaskari/overleaf-web-mcp/releases/tag/v0.2.1
 [0.2.0]: https://github.com/mhmdaskari/overleaf-web-mcp/releases/tag/v0.2.0
-[0.1.4]: https://github.com/mhmdaskari/overleaf-web-mcp/releases/tag/v0.1.4
 [0.1.3]: https://github.com/mhmdaskari/overleaf-web-mcp/releases/tag/v0.1.3
 [0.1.2]: https://github.com/mhmdaskari/overleaf-web-mcp/releases/tag/v0.1.2
 [0.1.1]: https://github.com/mhmdaskari/overleaf-web-mcp/releases/tag/v0.1.1

@@ -19,6 +19,6 @@ Compiling. compile_project with no rootFilePath builds the project's configured 
 
 Comments. add_comment needs a fresh revision, 1-based line and UTF-16 column positions, and expectedText equal to the exact selected text. list_comments returns open threads by default.
 
-Errors are JSON with code, message, retryable, and details. AUTH_EXPIRED means the user must run "npx overleaf-web-mcp login" again; tell them and stop rather than retrying. While a project is open the account may appear online to collaborators.
+Errors are JSON with code, message, retryable, and details. AUTH_EXPIRED means the user must run "npx overleaf-web-mcp login" again; tell them and stop rather than retrying. auth_status reports sessionExpiresAt; a session lapses after five idle days unless the user schedules "npx overleaf-web-mcp keepalive". While a project is open the account may appear online to collaborators.
 
 This is an unofficial client. Prefer disposable projects for experiments and keep request volume low.`

@@ -112,6 +112,14 @@ runs `auth_status`, which reports the account's project count without exposing a
       "$(npm root -g)/overleaf-web-mcp/dist/cli.js" serve
     ```
 
+**"Connection closed" or "server exited" at startup, and nothing else.** The server checks the
+saved session before it answers the client, and an expired session makes it exit with
+`AUTH_EXPIRED` on stderr, which most clients never show. Overleaf sessions last five days from
+their last use. Run `npx overleaf-web-mcp keepalive`: it prints the new expiry if the session is
+alive, or the `AUTH_EXPIRED` error if it is not, in which case run `npx overleaf-web-mcp login`.
+To stop it recurring, schedule the keepalive daily; see
+[keeping the session alive](configuration.md#keeping-the-session-alive).
+
 **`AUTH_EXPIRED` in a tool result.** The saved session has expired or been revoked. Run
 `npx overleaf-web-mcp login` again. Nothing else needs to change.
 

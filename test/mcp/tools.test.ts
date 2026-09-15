@@ -66,6 +66,37 @@ describe('MCP tool registration', () => {
 
     expect(badge).toBe(String(TOOL_NAMES.length))
     expect(prose).toBe(String(TOOL_NAMES.length))
+    // The README's tool table must name every registered tool, or it rots like the count would.
+    for (const name of TOOL_NAMES) expect(readme).toContain(`| \`${name}\` |`)
+  })
+
+  test('returns auth_status as structured content with a declared output schema', async () => {
+    const runtime = fakeRuntime()
+    const status = {
+      authenticated: true,
+      baseUrl: 'https://overleaf.test',
+      projectCount: 2,
+      sessionExpiresAt: '2026-09-19T00:00:00.000Z',
+      permissionsUnchecked: false,
+      socketPresenceNotice: 'notice',
+    }
+    runtime.authStatus.mockResolvedValue(status)
+    const registered = new Map<string, { config: any; handler: (...args: any[]) => any }>()
+    registerOverleafTools(
+      {
+        registerTool: (name: string, config: any, handler: (...args: any[]) => any) => {
+          registered.set(name, { config, handler })
+        },
+      },
+      runtime
+    )
+
+    const tool = registered.get('auth_status')
+    expect(tool?.config.outputSchema).toHaveProperty('sessionExpiresAt')
+    expect(tool?.config.annotations).toEqual({ readOnlyHint: true })
+    const result = await tool?.handler({})
+    expect(result.structuredContent).toEqual(status)
+    expect(JSON.parse(result.content[0].text)).toEqual(status)
   })
 
   test('marks an in-place upload as destructive and lets a compile default its root', () => {

@@ -94,4 +94,84 @@ describe('Netscape cookie jars', () => {
       'overleaf_session2=session'
     )
   })
+
+  test('writes domain cookies with the subdomain flag other Netscape readers rely on', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'overleaf-cookie-scope-'))
+    const path = join(directory, 'cookies.txt')
+    const jar = new CookieJar()
+    await jar.setCookie(
+      'overleaf_session2=session; Domain=.overleaf.test; Path=/; Secure; HttpOnly',
+      'https://www.overleaf.test/project'
+    )
+    await jar.setCookie('balancer=host; Path=/; Secure', 'https://www.overleaf.test/project')
+
+    await writeCookieJar(path, jar)
+
+    const lines = (await readFile(path, 'utf8')).split('\n')
+    // tough-cookie strips the leading dot from `domain`; the flag must come from `hostOnly`.
+    expect(lines).toContain('#HttpOnly_.overleaf.test\tTRUE\t/\tTRUE\t0\toverleaf_session2\tsession')
+    expect(lines).toContain('www.overleaf.test\tFALSE\t/\tTRUE\t0\tbalancer\thost')
+    const loaded = await CookieStore.load(path)
+    expect(await loaded.jar.getCookieString('https://www.overleaf.test/project')).toContain(
+      'overleaf_session2=session'
+    )
+  })
+
+  test('keeps a Max-Age deadline across a write and a reload', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'overleaf-cookie-deadline-'))
+    const path = join(directory, 'cookies.txt')
+    const jar = new CookieJar()
+    await jar.setCookie(
+      'overleaf_session2=session; Domain=.overleaf.test; Path=/; Secure; HttpOnly; Max-Age=432000',
+      'https://www.overleaf.test/project'
+    )
+    const [issued] = await jar.getCookies('https://www.overleaf.test/project')
+    const deadline = Math.floor((issued?.expiryTime() ?? Number.NaN) / 1000)
+    expect(Number.isFinite(deadline)).toBe(true)
+
+    await writeCookieJar(path, jar)
+
+    // Before the fix this column read 0, because `expires` stays Infinity for a Max-Age cookie.
+    expect(await readFile(path, 'utf8')).toContain(`\t${deadline}\toverleaf_session2\t`)
+    const loaded = await CookieStore.load(path)
+    expect(await loaded.sessionExpiresAt('https://www.overleaf.test/project')).toBe(
+      new Date(deadline * 1000).toISOString()
+    )
+  })
+
+  test('reports the earliest finite deadline among the cookies a request would carry', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'overleaf-cookie-expiry-'))
+    const path = join(directory, 'cookies.txt')
+    await writeFile(
+      path,
+      [
+        '# Netscape HTTP Cookie File',
+        '.overleaf.test\tTRUE\t/\tTRUE\t0\tbalancer\tsession-only',
+        '.overleaf.test\tTRUE\t/\tTRUE\t2147483647\tpreference\tlater',
+        '#HttpOnly_.overleaf.test\tTRUE\t/\tTRUE\t1893456000\toverleaf_session2\tsession',
+        '',
+      ].join('\n'),
+      { mode: 0o600 }
+    )
+    const store = await CookieStore.load(path)
+
+    expect(await store.sessionExpiresAt('https://www.overleaf.test/project')).toBe(
+      '2030-01-01T00:00:00.000Z'
+    )
+    // Nothing is sent to an unrelated host, so there is no deadline to report.
+    expect(await store.sessionExpiresAt('https://elsewhere.test/')).toBeUndefined()
+  })
+
+  test('reports no deadline when every cookie is a session cookie', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'overleaf-cookie-session-only-'))
+    const path = join(directory, 'cookies.txt')
+    await writeFile(
+      path,
+      '# Netscape HTTP Cookie File\n.overleaf.test\tTRUE\t/\tTRUE\t0\toverleaf.sid\tsession\n',
+      { mode: 0o600 }
+    )
+    const store = await CookieStore.load(path)
+
+    expect(await store.sessionExpiresAt('https://www.overleaf.test/project')).toBeUndefined()
+  })
 })
