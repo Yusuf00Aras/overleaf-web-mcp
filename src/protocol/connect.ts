@@ -1,4 +1,5 @@
 import WebSocket from 'ws'
+import { HttpsProxyAgent } from 'https-proxy-agent'
 import type { CookieJar } from 'tough-cookie'
 
 import { AUTH_LOGIN_INSTRUCTION, McpError } from '../core/errors.js'
@@ -29,9 +30,20 @@ function defaultWebSocketFactory(
   url: string,
   options: { headers: Record<string, string> }
 ): WebSocketPeer {
+  const proxyUrl =
+    process.env.HTTPS_PROXY ??
+    process.env.https_proxy ??
+    process.env.HTTP_PROXY ??
+    process.env.http_proxy
+
+  const agent = proxyUrl
+    ? new HttpsProxyAgent(proxyUrl)
+    : undefined
+
   return new WebSocket(url, {
     headers: options.headers,
     perMessageDeflate: false,
+    ...(agent ? { agent } : {}),
   })
 }
 
