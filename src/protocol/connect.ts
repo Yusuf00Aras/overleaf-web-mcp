@@ -1,5 +1,6 @@
+import type { Agent } from 'node:http'
+
 import WebSocket from 'ws'
-import { HttpsProxyAgent } from 'https-proxy-agent'
 import type { CookieJar } from 'tough-cookie'
 
 import { AUTH_LOGIN_INSTRUCTION, McpError } from '../core/errors.js'
@@ -23,28 +24,18 @@ export interface OpenProjectConnectionOptions {
   timeoutMs?: number
   applyTimeoutMs?: number
   fetcher?: Fetcher
+  /** Carries the WebSocket, for example through a proxy; pair it with a `fetcher` taking the same route. */
+  webSocketAgent?: Agent
   webSocketFactory?: WebSocketFactory
 }
 
-function defaultWebSocketFactory(
-  url: string,
-  options: { headers: Record<string, string> }
-): WebSocketPeer {
-  const proxyUrl =
-    process.env.HTTPS_PROXY ??
-    process.env.https_proxy ??
-    process.env.HTTP_PROXY ??
-    process.env.http_proxy
-
-  const agent = proxyUrl
-    ? new HttpsProxyAgent(proxyUrl)
-    : undefined
-
-  return new WebSocket(url, {
-    headers: options.headers,
-    perMessageDeflate: false,
-    ...(agent ? { agent } : {}),
-  })
+function createWebSocketFactory(agent?: Agent): WebSocketFactory {
+  return (url, options) =>
+    new WebSocket(url, {
+      headers: options.headers,
+      perMessageDeflate: false,
+      ...(agent === undefined ? {} : { agent }),
+    })
 }
 
 function responseSetCookies(headers: Headers): string[] {
@@ -108,7 +99,7 @@ export async function openProjectConnection(
   websocketUrl.protocol = websocketUrl.protocol === 'https:' ? 'wss:' : 'ws:'
   websocketUrl.pathname = `/socket.io/1/websocket/${handshake.sessionId}`
   websocketUrl.search = ''
-  const webSocketFactory = options.webSocketFactory ?? defaultWebSocketFactory
+  const webSocketFactory = options.webSocketFactory ?? createWebSocketFactory(options.webSocketAgent)
   const socket = webSocketFactory(websocketUrl.href, {
     headers: {
       ...(websocketCookie ? { Cookie: websocketCookie } : {}),
